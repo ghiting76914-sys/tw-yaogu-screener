@@ -343,35 +343,41 @@ def analyze(code, history, ref, args):
 
     r5, r20 = ret(5), ret(20)
 
-    score, reasons = 0, []
+    # 每一項加分都記錄下來，網頁上顯示得分明細；評分規則說明見 web/index.html 的「評分依據」
+    breakdown = []
+
+    def add(points, text):
+        breakdown.append([text, points])
+
     if cap_e is not None:
         if cap_e < args.small_cap:
-            score += 2; reasons.append(f"小股本{cap_e:.1f}億")
+            add(2, f"小股本{cap_e:.1f}億")
         elif cap_e < args.small_cap * 2:
-            score += 1; reasons.append(f"股本{cap_e:.1f}億")
+            add(1, f"股本{cap_e:.1f}億")
     if vol_ratio is not None:
         if vol_ratio >= 3:
-            score += 2; reasons.append(f"爆量{vol_ratio:.1f}倍")
+            add(2, f"爆量{vol_ratio:.1f}倍")
         elif vol_ratio >= 2:
-            score += 1; reasons.append(f"量增{vol_ratio:.1f}倍")
+            add(1, f"量增{vol_ratio:.1f}倍")
     if streak >= 1:
-        score += 2 + min(streak - 1, 3)
-        reasons.append("漲停" if streak == 1 else f"連{streak}根漲停")
+        add(2 + min(streak - 1, 3), "漲停" if streak == 1 else f"連{streak}根漲停")
     elif pct is not None and pct >= 5:
-        score += 1; reasons.append(f"大漲{pct:.1f}%")
+        add(1, f"大漲{pct:.1f}%")
     if r5 is not None:
         if r5 >= 20:
-            score += 2; reasons.append(f"5日+{r5:.0f}%")
+            add(2, f"5日+{r5:.0f}%")
         elif r5 >= 10:
-            score += 1; reasons.append(f"5日+{r5:.0f}%")
+            add(1, f"5日+{r5:.0f}%")
     if breakout:
-        score += 2; reasons.append("突破60日高")
+        add(2, "突破60日高")
     if turnover is not None and turnover >= 10:
-        score += 1; reasons.append(f"週轉率{turnover:.0f}%")
+        add(1, f"週轉率{turnover:.0f}%")
     if code in ref["attention"]:
-        score += 1; reasons.append("注意股")
+        add(1, "注意股")
     if code in ref["disposal"]:
-        reasons.append(f"處置中({ref['disposal'][code]})")
+        add(0, f"處置中({ref['disposal'][code]})")
+    score = sum(p for _, p in breakdown)
+    reasons = [t for t, _ in breakdown]
 
     return {
         "代號": code,
@@ -389,6 +395,7 @@ def analyze(code, history, ref, args):
         "突破60日高": "是" if breakout else "",
         "分數": score,
         "訊號": "、".join(reasons),
+        "得分明細": breakdown,
     }
 
 

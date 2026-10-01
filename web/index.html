@@ -165,6 +165,36 @@ tbody tr.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); 
 .d-price { text-align: right; }
 .d-price .p { font-size: 26px; font-weight: 700; line-height: 1.1; }
 .d-signals { margin: 12px 0 4px; }
+.info-btn { padding: 3px 10px; font-size: 12px; border-radius: 999px; color: var(--muted); }
+.info-btn[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
+.score-info {
+  margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px 18px; box-shadow: var(--shadow); display: grid; grid-template-columns: 1.1fr 1fr; gap: 8px 28px;
+}
+.score-info h3 { margin: 0 0 8px; font-size: 14px; }
+.score-info table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.score-info td { padding: 5px 0; border-bottom: 1px solid var(--line); }
+.score-info td + td { text-align: right; white-space: nowrap; padding-left: 12px; font-weight: 600; }
+.score-info tr.total td { border-bottom: 0; color: var(--muted); font-weight: 400; }
+.tiers { display: grid; gap: 6px; font-size: 13px; }
+.tier { display: grid; grid-template-columns: 64px 1fr; gap: 10px; align-items: baseline; }
+.tier b { font-size: 13px; }
+.dist { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.dist button { font-size: 12px; padding: 3px 10px; }
+.dist button.on { border-color: var(--accent); color: var(--accent); }
+.note { font-size: 12px; color: var(--muted); margin: 10px 0 0; grid-column: 1 / -1; }
+.breakdown { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+.breakdown td { padding: 3px 0; }
+.breakdown td + td { text-align: right; font-weight: 700; }
+.breakdown tr.sum td { border-top: 1px solid var(--line); padding-top: 6px; }
+/* 不套用股票表格的靠右、不換行與滑鼠效果 */
+.score-info tbody td, .breakdown tbody td { text-align: left; white-space: normal; padding-left: 0; padding-right: 0; }
+.score-info tbody td + td, .breakdown tbody td + td { text-align: right; white-space: nowrap; padding-left: 12px; }
+.score-info tbody tr, .breakdown tbody tr { cursor: default; }
+.score-info tbody tr:hover, .breakdown tbody tr:hover { background: none; }
+.breakdown tbody td { border-bottom: 0; padding-top: 2px; padding-bottom: 2px; }
+.breakdown .chip { margin: 0; }
+@media (max-width: 860px) { .score-info { grid-template-columns: 1fr; } }
 .ohlc { font-size: 12px; color: var(--muted); min-height: 18px; margin: 8px 0 2px; }
 .ohlc b { color: var(--text); font-weight: 600; }
 svg.chart { width: 100%; height: auto; display: block; }
@@ -285,6 +315,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
       <label for="minScore">最低分數</label>
       <input type="range" id="minScore" min="3" max="15" value="6">
       <output id="minScoreOut" class="num">6</output>
+      <button class="info-btn" id="scoreInfoBtn" type="button" aria-expanded="false" aria-controls="scoreInfo">ⓘ 評分依據</button>
     </div>
     <div class="ctl dyn">
       <label for="minVol">最低成交張數</label>
@@ -304,6 +335,36 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     <div class="ctl search">
       <input type="search" id="q" placeholder="搜尋代號或名稱">
     </div>
+  </section>
+
+  <section class="score-info" id="scoreInfo" hidden>
+    <div>
+      <h3>分數怎麼算（滿分 15）</h3>
+      <table>
+        <tr><td>股本 &lt; <span class="capN">10</span> 億 ／ &lt; <span class="capN2">20</span> 億（籌碼輕、容易拉抬）</td><td>+2 ／ +1</td></tr>
+        <tr><td>量比 ≥ 3 倍 ／ ≥ 2 倍（今日量 ÷ 前 20 日均量）</td><td>+2 ／ +1</td></tr>
+        <tr><td>漲停（漲幅 ≥ 9.5%），連續漲停每多一天再 +1</td><td>+2 ～ +5</td></tr>
+        <tr><td>未漲停但漲幅 ≥ 5%</td><td>+1</td></tr>
+        <tr><td>5 日累計漲幅 ≥ 20% ／ ≥ 10%</td><td>+2 ／ +1</td></tr>
+        <tr><td>收盤突破前 60 日最高價</td><td>+2</td></tr>
+        <tr><td>週轉率 ≥ 10%（成交股數 ÷ 發行股數）</td><td>+1</td></tr>
+        <tr><td>被列為注意股</td><td>+1</td></tr>
+        <tr><td>處置股（只標示，不加分）</td><td>0</td></tr>
+        <tr class="total"><td>只列出成交量 ≥ 最低成交張數的一般股票（排除 ETF、權證）</td><td></td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>門檻怎麼選</h3>
+      <div class="tiers">
+        <div class="tier"><b class="num">3～5 分</b><span class="muted">只有一兩項異常，例如單純量增或小漲。數量多、雜訊也多，適合搜尋特定股票。</span></div>
+        <div class="tier"><b class="num">6～7 分</b><span>同時具備多項特徵，例如漲停＋爆量＋突破新高，開始有妖股樣貌。<b>預設 6 分</b>。</span></div>
+        <div class="tier"><b class="num">8～9 分</b><span>強勢且多半是小股本，通常已連續漲停或短線大漲。</span></div>
+        <div class="tier"><b class="num up">10 分以上</b><span>已經在噴出段，常被列為注意股或處置股，<b class="up">追高風險最大</b>。</span></div>
+      </div>
+      <h3 style="margin-top:14px">今天各門檻的檔數 <span class="muted" style="font-weight:400;font-size:12px">（點選可直接套用）</span></h3>
+      <div class="dist num" id="scoreDist"></div>
+    </div>
+    <p class="note">分數衡量的是「妖股特徵有多明顯」，不是預測明天會漲。分數越高，通常代表已經漲越多，隔天的波動與回檔風險也越大。想找隔天進場的股票，請看「明日強勢候選」分頁，那邊有回測過的進出場價位。</p>
   </section>
 
   <section class="stats">
@@ -466,6 +527,33 @@ function filtered() {
 
 // ---------------------------------------------------------------- 表格
 
+// 今天各分數門檻的檔數（套用目前的市場、漲停、處置、搜尋條件，不套用分數）
+function renderScoreDist() {
+  if (!state.data) return;
+  const cap = +$("smallCap").value || 10;
+  document.querySelectorAll(".capN").forEach((el) => (el.textContent = cap));
+  document.querySelectorAll(".capN2").forEach((el) => (el.textContent = cap * 2));
+  const q = $("q").value.trim().toLowerCase();
+  const base = state.data.results.filter((r) =>
+    (!state.market || r["市場"] === state.market) &&
+    (!$("onlyLimit").checked || r["連續漲停"] >= 1) &&
+    (!$("noDisposal").checked || !isDisposal(r)) &&
+    (!q || r["代號"].includes(q) || r["名稱"].toLowerCase().includes(q)));
+  const cur = +$("minScore").value;
+  $("scoreDist").innerHTML = [3, 4, 5, 6, 7, 8, 9, 10, 12].map((v) =>
+    `<button type="button" data-v="${v}" class="${v === cur ? "on" : ""}">≥ ${v} 分：${base.filter((r) => r["分數"] >= v).length} 檔</button>`
+  ).join("");
+}
+
+function breakdownTable(r) {
+  const items = r["得分明細"];
+  if (!items) return `<div class="d-signals">${signalChips(r["訊號"])}</div>`;
+  return `<table class="breakdown">
+    ${items.map(([t, p]) => `<tr><td>${signalChips(t)}</td><td class="num ${p > 0 ? "up" : "muted"}">${p > 0 ? "+" + p : "0"}</td></tr>`).join("")}
+    <tr class="sum"><td class="muted">總分</td><td class="num">${r["分數"]}</td></tr>
+  </table>`;
+}
+
 function renderHead() {
   $("thead").innerHTML = COLUMNS.map((c) => {
     const sorted = c.key === state.sortKey;
@@ -480,6 +568,7 @@ function render() {
   state.rows = rows;
 
   $("cntRadar").textContent = rows.length;
+  renderScoreDist();
   $("stCount").innerHTML = `${rows.length}<small>/ ${state.data ? state.data.results.length : 0}</small>`;
   $("stLimit").textContent = rows.filter((r) => r["連續漲停"] >= 1).length;
   $("stStreak").textContent = rows.filter((r) => r["連續漲停"] >= 2).length;
@@ -547,7 +636,7 @@ async function select(code) {
         <div class="num">${pct(chg)}%</div>
       </div>
     </div>
-    <div class="d-signals">${signalChips(r["訊號"])}</div>
+    ${breakdownTable(r)}
     <div class="ohlc num" id="ohlc">&nbsp;</div>
     <div id="chart"><div class="empty" style="padding:80px 0"><div class="spinner"></div></div></div>
     <div class="metrics">
@@ -761,6 +850,18 @@ function drawChart(bars) {
 
 $("run").addEventListener("click", () => runScreen());
 $("minScore").addEventListener("input", (e) => { $("minScoreOut").textContent = e.target.value; render(); });
+$("scoreInfoBtn").addEventListener("click", () => {
+  const open = $("scoreInfo").hidden;
+  $("scoreInfo").hidden = !open;
+  $("scoreInfoBtn").setAttribute("aria-expanded", String(open));
+});
+$("scoreDist").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  $("minScore").value = b.dataset.v;
+  $("minScoreOut").textContent = b.dataset.v;
+  render();
+});
 ["q", "onlyLimit", "noDisposal"].forEach((id) => $(id).addEventListener("input", render));
 // 成交量、股本門檻會影響伺服器端的評分，變更後重新篩選
 ["minVol", "smallCap"].forEach((id) => $(id).addEventListener("change", runScreen));
