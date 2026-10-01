@@ -1,0 +1,64 @@
+name: 每日更新妖股雷達
+
+on:
+  schedule:
+    # GitHub 用 UTC 時間；台灣 15:40 與 17:30（補跑，避免官方資料延遲公布）
+    - cron: "40 7 * * 1-5"
+    - cron: "30 9 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TZ: Asia/Taipei
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 保留前一次下載的行情，每天只需補抓當天
+      - name: 還原行情快取
+        uses: actions/cache/restore@v4
+        with:
+          path: data/cache
+          key: market-cache-${{ github.run_id }}
+          restore-keys: market-cache-
+
+      - name: 篩選並產生網站
+        run: python export_site.py
+
+      - name: 儲存行情快取
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/cache
+          key: market-cache-${{ github.run_id }}
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
