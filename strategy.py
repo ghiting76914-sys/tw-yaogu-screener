@@ -232,22 +232,56 @@ def tomorrow_picks(history, ref, small_cap=10, opt=DEFAULTS, insti=None, exclude
     return picks
 
 
+def held_bars(s, start, n, days):
+    """持有期間（從 start 起）的 K 棒，供模擬交易使用：
+      - 除權息：把除權息扣掉的價差加回之後的價格（股利仍在投資人手上），
+        避免除息造成假停損，報酬也包含股利
+      - 一字跌停：標記 locked_down，當天停損單賣不掉
+    回傳 [(交易日索引, {open, high, low, close, locked_down})]。"""
+    out, cum = [], 0.0
+    for d in range(start, min(start + days, n)):
+        x = s[d]
+        if not x or x["close"] is None or x["open"] is None:
+            continue
+        prev = s[d - 1]
+        if d > start and prev and prev["close"] is not None and x["change"] is not None:
+            gap = prev["close"] - (x["close"] - x["change"])  # 昨收 - 今日參考價
+            if gap > prev["close"] * 0.003:
+                cum += gap
+        p = pct_change(x)
+        out.append((d, {"open": x["open"] + cum, "high": x["high"] + cum, "low": x["low"] + cum,
+                        "close": x["close"] + cum,
+                        "locked_down": x["high"] == x["low"] and p is not None and p <= -9.5}))
+    return out
+
+
 def simulate(s, t, f, n):
     """照操作計畫模擬一筆交易，回傳扣成本後報酬 %；隔天開盤不在進場區間則回傳 None。
-    同一天同時碰到停損與目標時，保守假設先碰到停損。"""
+    同一天同時碰到停損與目標時，保守假設先碰到停損；一字跌停賣不掉，延到下一個能成交的開盤出場。"""
     lv = levels(f)
-    o = s[t + 1]["open"]
+    nxt = s[t + 1] if t + 1 < n else None
+    if not nxt or not nxt["open"]:
+        return None  # 隔天停止交易或沒有成交
+    o = nxt["open"]
     if not (lv["entry_low"] <= o <= lv["entry_high"]):
         return None
     entry, stop = o, lv["stop"]
     targets = [lv["tp1"], lv["tp2"]]
-    pos, pnl, last_close = 1.0, 0.0, None
-    for d in range(t + 1, min(t + 1 + MAX_HOLD, n)):
-        x = s[d]
-        if not x or x["close"] is None:
-            continue
+    pos, pnl, last_close, pending = 1.0, 0.0, None, False
+    for d, x in held_bars(s, t + 1, n, MAX_HOLD + 10):
+        if pending:  # 前一天觸發停損但跌停鎖死
+            if x["locked_down"]:
+                continue
+            pnl += pos * (x["open"] / entry - 1)
+            pos = 0
+            break
+        if d >= t + 1 + MAX_HOLD:
+            break
         gap_open = d > t + 1  # 進場日以開盤價買進，之後的日子可能跳空越過價位
         if x["low"] <= stop:
+            if x["locked_down"]:
+                pending = True
+                continue
             px = min(x["open"], stop) if gap_open else stop
             pnl += pos * (px / entry - 1)
             pos = 0
@@ -471,7 +505,7 @@ def pre_picks(history, ref, small_cap=10):
 
 def pre_simulate(s, t, f, n):
     """突破箱頂才進場；回傳扣成本後報酬 %，5 日內沒突破回傳 None。
-    同一天同時碰到停損與目標時，保守假設先碰到停損。"""
+    同一天同時碰到停損與目標時，保守假設先碰到停損；一字跌停賣不掉，延到下一個能成交的開盤出場。"""
     lv = pre_levels(f)
     entry = entry_day = None
     for d in range(t + 1, min(t + 1 + PRE["trigger_days"], n)):
@@ -483,13 +517,19 @@ def pre_simulate(s, t, f, n):
         return None
     stop = max(lv["stop"], entry * 0.93)
     target = entry + (f["box_high"] - f["box_low"])
-    last = None
-    for d in range(entry_day, min(entry_day + PRE["max_hold"], n)):
-        x = s[d]
-        if not x or x["close"] is None:
-            continue
+    last, pending = None, False
+    for d, x in held_bars(s, entry_day, n, PRE["max_hold"] + 10):
+        if pending:  # 前一天觸發停損但跌停鎖死
+            if x["locked_down"]:
+                continue
+            return (x["open"] / entry - 1) * 100 - ROUND_TRIP_COST
+        if d >= entry_day + PRE["max_hold"]:
+            break
         later = d > entry_day
         if x["low"] <= stop:
+            if x["locked_down"]:
+                pending = True
+                continue
             px = min(x["open"], stop) if later else stop
             return (px / entry - 1) * 100 - ROUND_TRIP_COST
         if x["high"] >= target:
@@ -497,6 +537,19 @@ def pre_simulate(s, t, f, n):
             return (px / entry - 1) * 100 - ROUND_TRIP_COST
         last = x["close"]
     return (last / entry - 1) * 100 - ROUND_TRIP_COST if last else None
+
+
+def hold_return(s, t, n, hold):
+    """隔日開盤買、持有 hold 日收盤賣的報酬 %（含除權息還原），作為對照組。
+    資料不完整或出現減資、分割等價格斷層時回傳 None。"""
+    bars = held_bars(s, t + 1, n, hold)
+    if not bars or bars[-1][0] != t + hold:
+        return None
+    ret = (bars[-1][1]["close"] / bars[0][1]["open"] - 1) * 100
+    # 受漲跌幅限制，hold 日內不可能超過這個範圍；超出代表減資、分割等價格斷層
+    if not 0.9 ** hold * 100 - 100 - 1 < ret < 1.1 ** hold * 100 - 100 + 1:
+        return None
+    return ret
 
 
 def _stats(rs):
@@ -523,12 +576,9 @@ def pre_backtest(history, market=None):
             r = s[t]
             if r is None or r["volume"] < 500_000:
                 continue
-            nxt, end = s[t + 1], s[t + hold]
-            if nxt and nxt["open"] and end and end["close"] is not None:
-                ret = (end["close"] / nxt["open"] - 1) * 100
-                # 10 日內受漲跌幅限制不可能超過這個範圍，超出代表減資、分割等價格斷層
-                if -66 < ret < 160:
-                    base.append(ret - ROUND_TRIP_COST)
+            ret = hold_return(s, t, n, hold)
+            if ret is not None:
+                base.append(ret - ROUND_TRIP_COST)
             f = pre_features(s, t)
             if not f or not pre_passes(f):
                 continue

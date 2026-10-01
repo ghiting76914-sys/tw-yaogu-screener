@@ -157,12 +157,12 @@ def baseline(days, series, taiex, hold, split_t):
     for t in range(60, n - hold - 1, 2):
         up, _ = market_state(days, taiex, t)
         for s in series.values():
-            r, nxt, end = s[t], s[t + 1], s[t + hold]
-            if not r or r["volume"] < 500_000 or not nxt or not nxt["open"] or not end or end["close"] is None:
+            r = s[t]
+            if not r or r["volume"] < 500_000:
                 continue
-            ret = (end["close"] / nxt["open"] - 1) * 100
-            if not -66 < ret < 160:
-                continue  # 減資、分割等價格斷層
+            ret = strategy.hold_return(s, t, n, hold)  # 含除權息還原，與策略的算法一致
+            if ret is None:
+                continue
             row = {"ret": ret - strategy.ROUND_TRIP_COST}
             period = "train" if t < split_t else "test"
             out[(period, "all")].append(row)

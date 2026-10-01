@@ -814,8 +814,8 @@ function renderPre() {
   const m = d.market;
   const paused = m && m.up === false;
   const mktNote = !m ? `<p class="filter-note">加權指數資料不足，無法判斷大盤狀態。</p>`
-    : m.up ? `<p class="filter-note ok">大盤 ${fmt(m.close)} 點，站上 20 日均線（${fmt(m.ma20)}）：可依計畫操作。</p>`
-    : `<p class="filter-note bad">大盤 ${fmt(m.close)} 點，<b>跌破 20 日均線（${fmt(m.ma20)}）：今日暫停進場</b>。2 年研究中，大盤在 20 日均線下時這套型態平均 -1.0%（訓練期）與 -3.0%（驗證期）。名單僅供觀察。</p>`;
+    : m.up ? `<p class="filter-note ok">大盤${m.live ? "（盤中即時）" : ""} ${fmt(m.close)} 點，站上 20 日均線（${fmt(m.ma20)}）：可依計畫操作。</p>`
+    : `<p class="filter-note bad">大盤${m.live ? "（盤中即時）" : ""} ${fmt(m.close)} 點，<b>跌破 20 日均線（${fmt(m.ma20)}）：今日暫停進場</b>。2 年研究中，大盤在 20 日均線下時這套型態平均 -1.0%（訓練期）與 -2.3%（驗證期）。名單僅供觀察。</p>`;
   $("preBanner").innerHTML = `<div class="banner">
     <h3>這份名單怎麼來的</h3>
     <div class="muted" style="font-size:13px">找出「近 20 日箱型整理、成交量萎縮、均線糾結，股價貼近箱頂，今天溫和放量收紅」但<b>還沒突破</b>的股票。要等股價漲過箱頂才算起漲；<b>大盤跌破 20 日均線時暫停</b>。</div>
@@ -827,7 +827,7 @@ function renderPre() {
     </div>` : ""}
     <p class="verdict">${verdict}</p>
     ${h ? `<p>回測期間 ${bt.from} ～ ${bt.to}，共 ${bt.signals} 個訊號，其中 ${bt.no_break} 個在 5 天內沒有突破、不進場。規則：${bt.market_filter ? "大盤站上 20 日均線的日子才做；" : ""}漲過箱頂才買；跌破停損出場；到目標價出場；最多持有 10 天。已扣手續費與證交稅 ${bt.cost}%。</p>` : ""}
-    <p class="research">📚 2 年研究（2024/08～2026/10，前 1.5 年找條件、最後半年驗證，共 2,611 筆交易）：經典起漲型態本身跟同期間隨便買差不多。唯一在兩段期間都成立的，是「大盤跌破 20 日均線時明顯較差」，所以大盤弱時暫停。</p>
+    <p class="research">📚 2 年研究（2024/08～2026/10，前 1.5 年找條件、最後半年驗證，共 2,611 筆交易）：經典起漲型態本身跟同期間隨便買差不多（大盤多頭時：訓練期 -0.2% 對 +0.0%、驗證期 +1.0% 對 +0.7%）。唯一在兩段期間都成立的，是「大盤跌破 20 日均線時明顯較差」，所以大盤弱時暫停。</p>
   </div>`;
 
   if (!d.pre.length) {

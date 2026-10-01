@@ -333,6 +333,13 @@ def load_taiex(dates):
     return data
 
 
+def taiex_live():
+    """加權指數即時值（MIS t00）。回傳 (YYYYMMDD, 指數)，抓不到回傳 (None, None)。"""
+    x = (fetch_json(MIS_URL.format("tse_t00.tw"), interval=1.0).get("msgArray") or [{}])[0]
+    z = num(x.get("z"))
+    return (x.get("d"), z) if z else (None, None)
+
+
 def market_state(taiex, date):
     """date 當天（含）加權指數是否站上 20 日均線。資料不足回傳 None。"""
     ymd = date.strftime("%Y%m%d")
@@ -565,7 +572,20 @@ def screen(end, args, log=True):
             print("讀取加權指數與三大法人買賣超…", file=sys.stderr)
         dates = [d for d, _ in history]
         taiex = load_taiex(dates)
+        # 盤中或官方收盤指數尚未公布：用即時指數判斷今天的大盤（不寫入快取）
+        last_ymd = dates[-1].strftime("%Y%m%d")
+        live_index = False
+        if last_ymd not in taiex and dates[-1] == dt.date.today():
+            try:
+                ymd, z = taiex_live()
+                if ymd == last_ymd:
+                    taiex = {**taiex, last_ymd: z}
+                    live_index = True
+            except Exception as e:
+                print(f"  即時加權指數讀取失敗：{e}", file=sys.stderr)
         res["market"] = [market_state(taiex, d) for d in dates]
+        if live_index and res["market"][-1]:
+            res["market"][-1]["live"] = True
         res["insti"] = []
         for d in dates:
             try:
