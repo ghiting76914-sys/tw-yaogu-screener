@@ -56,6 +56,26 @@ python3 server.py
 
 本機預覽靜態版：`python3 export_site.py && cd site && python3 -m http.server`
 
+## LINE 通知
+
+每天更新完成後，`notify_line.py` 會把明日強勢候選（理由、進場與停損參考、風險）推播到 LINE。
+同一個交易日只發送一次。使用 LINE 官方帳號 Messaging API（LINE Notify 已於 2025 年停止服務），免費方案每月 200 則。
+
+設定方式：
+
+1. 到 [LINE Developers](https://developers.line.biz/console/) 用 LINE 帳號登入，建立 Provider，再建立 **Messaging API** channel（會同時建立一個 LINE 官方帳號）
+2. 在 channel 的 **Messaging API** 分頁最下方，發行 **Channel access token (long-lived)**
+3. 在 **Basic settings** 分頁最下方，複製 **Your user ID**（U 開頭）
+4. 用手機 LINE 掃 **Messaging API** 分頁的 QR code，把官方帳號加為好友
+5. 把兩組值存成 GitHub Secrets：
+
+```bash
+gh secret set LINE_CHANNEL_ACCESS_TOKEN --repo ghiting76914-sys/tw-yaogu-screener
+gh secret set LINE_USER_ID --repo ghiting76914-sys/tw-yaogu-screener
+```
+
+預覽訊息內容：`python3 notify_line.py --dry-run`
+
 ## 命令列版
 
 ```bash

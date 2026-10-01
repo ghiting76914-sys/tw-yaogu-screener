@@ -6,6 +6,11 @@ on:
     - cron: "40 7 * * 1-5"
     - cron: "30 9 * * 1-5"
   workflow_dispatch:
+    inputs:
+      force_line:
+        description: "LINE 通知：同一交易日已發送過仍再發送"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -39,6 +44,13 @@ jobs:
 
       - name: 篩選並產生網站
         run: python export_site.py
+
+      # 未設定 LINE 金鑰時會自動略過；同一交易日只發送一次
+      - name: 傳送明日強勢候選到 LINE
+        env:
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+        run: python notify_line.py ${{ inputs.force_line && '--force' || '' }}
 
       - name: 儲存行情快取
         if: always()
