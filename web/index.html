@@ -232,6 +232,12 @@ svg.chart { width: 100%; height: auto; display: block; }
 .plan { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; background: var(--panel-2); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
 .plan dt { color: var(--muted); font-weight: 600; }
 .plan dd { margin: 0; }
+.ladder { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border-radius: 10px; overflow: hidden; margin-top: 14px; }
+.ladder div { background: var(--panel-2); padding: 8px 12px; }
+.ladder .k { font-size: 12px; color: var(--muted); }
+.ladder .v { font-size: 17px; font-weight: 700; }
+.ladder .s { font-size: 12px; }
+@media (max-width: 760px) { .ladder { grid-template-columns: repeat(2, 1fr); } }
 .pick-cols { display: grid; grid-template-columns: 1.3fr 1fr; gap: 0 22px; }
 @media (max-width: 760px) { .pick-cols, .bt { grid-template-columns: 1fr; } }
 footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 22px; }
@@ -602,7 +608,7 @@ function renderPicks() {
   const d = state.data;
   if (!d) return;
   $("cntPicks").textContent = d.picks.length;
-  const bt = d.backtest, h = bt.hold3_stop || bt.hold3;
+  const bt = d.backtest, h = bt.plan;
   const val = (x, unit = "%") => x == null ? "–" : `${pct(x)}${unit}`;
   let verdict = "回測樣本不足，無法評估這套規則。";
   if (h) {
@@ -616,12 +622,12 @@ function renderPicks() {
     <h3>這份名單怎麼來的</h3>
     <div class="muted" style="font-size:13px">今天收盤後，找出「放量突破 60 日高點、收在最高價附近、均線向上、但 5 日漲幅還不到 20%」的股票，作為明天的觀察對象。</div>
     ${h ? `<div class="bt">
-      <div><div class="k">回測：持有 3 日（含停損）</div><div class="v num">${val(h.avg)}<small>平均報酬</small></div></div>
+      <div><div class="k">回測：照操作計畫進出</div><div class="v num">${val(h.avg)}<small>平均報酬</small></div></div>
       <div><div class="k">勝率</div><div class="v num">${h.win}%<small>${h.trades} 筆交易</small></div></div>
       <div><div class="k">最好 / 最差一筆</div><div class="v num">${val(h.best)} <small>/</small> ${val(h.worst)}</div></div>
     </div>` : ""}
     <p class="verdict">${verdict}</p>
-    <p>回測期間 ${bt.from} ～ ${bt.to}（${bt.signal_days} 個交易日有訊號）。規則：訊號隔天開盤買進，跳空超過 +3% 不追（${bt.skipped_gap} 筆因此略過）；持有 3 天收盤賣出，期間收盤跌破停損價就出場。已扣手續費與證交稅 ${bt.cost}%。對照：持有 1 日平均 ${val(bt.hold1 && bt.hold1.avg)}、不設停損持有 3 日平均 ${val(bt.hold3 && bt.hold3.avg)}。</p>
+    <p>回測期間 ${bt.from} ～ ${bt.to}（${bt.signal_days} 個交易日有訊號）。規則：隔天開盤落在進場區間才買（${bt.skipped_gap} 筆因開盤不在區間而略過）；盤中跌破停損出場；到目標一先賣一半、停損移到成本，到目標二全部出場；最多持有 3 天。已扣手續費與證交稅 ${bt.cost}%。對照：隔日開盤買、持有 1 日平均 ${val(bt.hold1 && bt.hold1.avg)}；持有 3 日不設停損停利平均 ${val(bt.hold3 && bt.hold3.avg)}、最差 ${val(bt.hold3 && bt.hold3.worst)}。</p>
     ${liveNote}
   </div>`;
 
@@ -637,6 +643,7 @@ function renderPicks() {
         <span class="strength">強度 <span class="bar"><i style="width:${p["強度"]}%"></i></span><b class="num" style="color:var(--text)">${p["強度"]}</b></span>
         <span class="px num"><b class="${p["漲跌%"] > 0 ? "up" : "down"}">${fmt(p["收盤"])}</b> ${pct(p["漲跌%"])}%</span>
       </div>
+      ${ladder(p)}
       <div class="pick-cols">
         <div>
           <h4>為什麼列入候選</h4>
@@ -647,13 +654,27 @@ function renderPicks() {
           <dl class="plan">
             <dt>進場</dt><dd>${esc(p["計畫"].entry)}</dd>
             <dt>停損</dt><dd>${esc(p["計畫"].stop)}</dd>
-            <dt>出場</dt><dd>${esc(p["計畫"].exit)}</dd>
+            <dt>目標一</dt><dd>${esc(p["計畫"].tp1)}</dd>
+            <dt>目標二</dt><dd>${esc(p["計畫"].tp2)}</dd>
+            <dt>期限</dt><dd>${esc(p["計畫"].exit)}</dd>
           </dl>
           <h4>風險</h4>
           <ul class="risk">${p["風險"].map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
         </div>
       </div>
     </article>`).join("");
+}
+
+function ladder(p) {
+  const lv = p["計畫"].levels, c = p["收盤"];
+  if (!lv) return "";
+  const rel = (x) => `${x >= c ? "+" : ""}${((x / c - 1) * 100).toFixed(1)}%`;
+  return `<div class="ladder num">
+    <div><div class="k">進場區間</div><div class="v">${lv.entry_low}～${lv.entry_high}</div><div class="s muted">${rel(lv.entry_low)} ～ ${rel(lv.entry_high)}</div></div>
+    <div><div class="k">停損</div><div class="v down">${lv.stop}</div><div class="s down">${rel(lv.stop)}</div></div>
+    <div><div class="k">目標一（賣一半）</div><div class="v up">${lv.tp1}</div><div class="s up">${rel(lv.tp1)}</div></div>
+    <div><div class="k">目標二（全部出場）</div><div class="v up">${lv.tp2}</div><div class="s up">${rel(lv.tp2)}</div></div>
+  </div>`;
 }
 
 function setView(v) {

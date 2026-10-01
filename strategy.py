@@ -15,6 +15,11 @@ from yaogu import is_common_stock, pct_change
 # 台股一買一賣成本：手續費 0.1425% × 2 + 證交稅 0.3%
 ROUND_TRIP_COST = 0.585
 
+# 操作計畫（回測比較過 1R～3R 停利、持有 3～10 日；持有越久越差，停利倍數影響不大）
+TP1_R = 1.5     # 第一目標：風險的 1.5 倍，先賣一半，剩下的停損移到成本價
+TP2_R = 3.0     # 第二目標：風險的 3 倍，全部出場
+MAX_HOLD = 3    # 最多持有交易日數，期滿收盤出場
+
 DEFAULTS = {
     "min_pct": 4.0,
     "min_vol_ratio": 2.0,
@@ -118,6 +123,20 @@ def stop_price(f):
     return f["low"]
 
 
+def levels(f):
+    """進場區間、停損、兩段停利價位（以今日收盤為基準，皆為有效升降單位）。"""
+    close = f["close"]
+    stop = stop_price(f)
+    risk = close - stop
+    entry_high = tick_floor(close * 1.03)
+    # 理想買點：回測突破點附近，但不低於收盤 -3%，也要明顯高於停損
+    entry_low = tick_floor(max(f["prior_high"], close * 0.97, stop * 1.01))
+    return {
+        "entry_low": min(entry_low, close), "entry_high": entry_high, "stop": stop,
+        "tp1": tick_floor(close + TP1_R * risk), "tp2": tick_floor(close + TP2_R * risk),
+    }
+
+
 def explain(f, cap_e, small_cap, attention):
     lim = f["pct"] >= 9.5
     reasons = []
@@ -155,13 +174,15 @@ def explain(f, cap_e, small_cap, attention):
     if not risks:
         risks.append("型態健康，但仍可能遇到大盤回檔或突破失敗")
 
-    entry_max = tick_floor(f["close"] * 1.03)
-    stop = stop_price(f)
-    stop_pct = (stop / f["close"] - 1) * 100
+    lv = levels(f)
+    pct = lambda x: (x / f["close"] - 1) * 100
     plan = {
-        "entry": f"明日開盤不高於 {entry_max:g}（今日收盤 +3%）再考慮進場，跳空太高不追",
-        "stop": f"收盤跌破 {stop:g}（約 {stop_pct:.1f}%）停損，代表突破失敗",
-        "exit": "持有期間收盤跌破 5 日均線，或出現爆量長黑，分批獲利了結",
+        "levels": lv,
+        "entry": f"明日開盤落在 {lv['entry_low']:g}～{lv['entry_high']:g} 之間才進場；開太高不追、開太低代表轉弱不買",
+        "stop": f"盤中跌破 {lv['stop']:g}（{pct(lv['stop']):+.1f}%）立即停損，代表突破失敗",
+        "tp1": f"漲到 {lv['tp1']:g}（{pct(lv['tp1']):+.1f}%）先賣一半，剩下的停損移到成本價",
+        "tp2": f"漲到 {lv['tp2']:g}（{pct(lv['tp2']):+.1f}%）全部出場",
+        "exit": f"最多持有 {MAX_HOLD} 個交易日，期滿沒到目標就收盤出場",
     }
     return reasons, risks, plan
 
@@ -194,13 +215,49 @@ def tomorrow_picks(history, ref, small_cap=10, opt=DEFAULTS):
     return picks
 
 
+def simulate(s, t, f, n):
+    """照操作計畫模擬一筆交易，回傳扣成本後報酬 %；隔天開盤不在進場區間則回傳 None。
+    同一天同時碰到停損與目標時，保守假設先碰到停損。"""
+    lv = levels(f)
+    o = s[t + 1]["open"]
+    if not (lv["entry_low"] <= o <= lv["entry_high"]):
+        return None
+    entry, stop = o, lv["stop"]
+    targets = [lv["tp1"], lv["tp2"]]
+    pos, pnl, last_close = 1.0, 0.0, None
+    for d in range(t + 1, min(t + 1 + MAX_HOLD, n)):
+        x = s[d]
+        if not x or x["close"] is None:
+            continue
+        gap_open = d > t + 1  # 進場日以開盤價買進，之後的日子可能跳空越過價位
+        if x["low"] <= stop:
+            px = min(x["open"], stop) if gap_open else stop
+            pnl += pos * (px / entry - 1)
+            pos = 0
+            break
+        while targets and x["high"] >= targets[0]:
+            px = max(x["open"], targets[0]) if gap_open else targets[0]
+            part = 0.5 if len(targets) == 2 else pos
+            pnl += part * (px / entry - 1)
+            pos -= part
+            targets.pop(0)
+            stop = max(stop, entry)  # 達第一目標後停損移到成本價
+        if pos <= 0:
+            break
+        last_close = x["close"]
+    if pos > 0:
+        if last_close is None:
+            return None
+        pnl += pos * (last_close / entry - 1)
+    return pnl * 100 - ROUND_TRIP_COST
+
+
 def backtest(history, opt=DEFAULTS):
-    """用同一套條件回測：訊號日隔天開盤買進（跳空超過 +3% 不買），
-    持有 3 日後收盤賣出，期間收盤跌破停損價則隔天開盤出場。報酬已扣交易成本。
-    另附「持有 1 日」與「持有 3 日不設停損」作為對照。"""
+    """用同一套條件與操作計畫回測（見 simulate）。報酬已扣交易成本。
+    另附「隔日開盤買、持有 1 日／3 日收盤賣」作為對照。"""
     series = build_series(history)
     n = len(history)
-    r1, r3, r3s = [], [], []
+    r1, r3, rp = [], [], []
     signal_days, skipped = set(), 0
     for t in range(20, n - 1):
         for s in series.values():
@@ -208,25 +265,18 @@ def backtest(history, opt=DEFAULTS):
             if not f or not passes(f, opt):
                 continue
             nxt = s[t + 1]
-            if not nxt or not nxt["open"] or nxt["close"] is None:
-                continue
-            entry = nxt["open"]
-            if entry > f["close"] * 1.03:
-                skipped += 1  # 跳空太高（含一字漲停）不追
+            if not nxt or not nxt["open"] or nxt["close"] is None or t + MAX_HOLD >= n:
                 continue
             signal_days.add(t)
+            entry = nxt["open"]
             r1.append((nxt["close"] / entry - 1) * 100 - ROUND_TRIP_COST)
-            hold = s[t + 1:t + 4]
-            if len(hold) < 3 or any(x is None or x["close"] is None for x in hold) or t + 4 > n:
-                continue
-            r3.append((hold[2]["close"] / entry - 1) * 100 - ROUND_TRIP_COST)
-            stop, exit_ = stop_price(f), hold[2]["close"]
-            for i, x in enumerate(hold):
-                if x["close"] < stop:
-                    nxt_day = s[t + 2 + i] if t + 2 + i < n else None
-                    exit_ = nxt_day["open"] if i < 2 and nxt_day and nxt_day["open"] else x["close"]
-                    break
-            r3s.append((exit_ / entry - 1) * 100 - ROUND_TRIP_COST)
+            if s[t + 3] and s[t + 3]["close"] is not None:
+                r3.append((s[t + 3]["close"] / entry - 1) * 100 - ROUND_TRIP_COST)
+            r = simulate(s, t, f, n)
+            if r is None:
+                skipped += 1  # 開盤不在進場區間，不買
+            else:
+                rp.append(r)
 
     def stats(rs):
         if not rs:
@@ -240,7 +290,7 @@ def backtest(history, opt=DEFAULTS):
         "to": history[-2][0].isoformat() if n > 1 else None,
         "signal_days": len(signal_days),
         "skipped_gap": skipped,
-        "hold3_stop": stats(r3s),
+        "plan": stats(rp),
         "hold1": stats(r1),
         "hold3": stats(r3),
         "cost": ROUND_TRIP_COST,
