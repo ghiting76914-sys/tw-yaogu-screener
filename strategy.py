@@ -187,7 +187,15 @@ def explain(f, cap_e, small_cap, attention):
     return reasons, risks, plan
 
 
-def tomorrow_picks(history, ref, small_cap=10, opt=DEFAULTS):
+def insti_selling(insti, code):
+    """三大法人當天合計賣超。2 年研究中，法人賣超的訊號在訓練期與驗證期都明顯較差。"""
+    iv = insti.get(code) if insti else None
+    return bool(iv and iv[2] < 0)
+
+
+def tomorrow_picks(history, ref, small_cap=10, opt=DEFAULTS, insti=None, excluded=None):
+    """insti：今天的三大法人買賣超（None 代表尚未公布，不排除）。
+    excluded：傳入 list 時，會放入因法人賣超而排除的股票名稱。"""
     series = build_series(history)
     t = len(history) - 1
     picks = []
@@ -197,11 +205,20 @@ def tomorrow_picks(history, ref, small_cap=10, opt=DEFAULTS):
         f = features(s, t)
         if not f or not passes(f, opt):
             continue
+        if insti_selling(insti, code):
+            if excluded is not None:
+                excluded.append(f"{s[t]['name']} {code}")
+            continue
         cap = ref["capital"].get(code)
         if cap is None and s[t].get("shares"):
             cap = s[t]["shares"] * 10
         cap_e = cap / 1e8 if cap else None
         reasons, risks, plan = explain(f, cap_e, small_cap, code in ref["attention"])
+        iv = insti.get(code) if insti else None
+        if iv and iv[2] > 0:
+            reasons.append(f"三大法人買超 {iv[2] / 1000:,.0f} 張（外資 {iv[0] / 1000:+,.0f}、投信 {iv[1] / 1000:+,.0f}）")
+        elif insti is None:
+            risks.append("三大法人資料尚未公布（約 15:00 後），還沒排除法人賣超的股票")
         picks.append({
             "代號": code, "名稱": s[t]["name"], "市場": s[t]["market"],
             "收盤": f["close"], "漲跌%": round(f["pct"], 2),
@@ -252,17 +269,20 @@ def simulate(s, t, f, n):
     return pnl * 100 - ROUND_TRIP_COST
 
 
-def backtest(history, opt=DEFAULTS):
+def backtest(history, opt=DEFAULTS, insti=None):
     """用同一套條件與操作計畫回測（見 simulate）。報酬已扣交易成本。
+    insti：與 history 對齊的三大法人資料 list，提供時排除當天法人賣超的訊號。
     另附「隔日開盤買、持有 1 日／3 日收盤賣」作為對照。"""
     series = build_series(history)
     n = len(history)
     r1, r3, rp = [], [], []
     signal_days, skipped = set(), 0
     for t in range(20, n - 1):
-        for s in series.values():
+        for code, s in series.items():
             f = features(s, t)
             if not f or not passes(f, opt):
+                continue
+            if insti and insti_selling(insti[t], code):
                 continue
             nxt = s[t + 1]
             if not nxt or not nxt["open"] or nxt["close"] is None or t + MAX_HOLD >= n:
@@ -294,6 +314,7 @@ def backtest(history, opt=DEFAULTS):
         "hold1": stats(r1),
         "hold3": stats(r3),
         "cost": ROUND_TRIP_COST,
+        "insti_filter": bool(insti),
     }
 
 
@@ -486,14 +507,18 @@ def _stats(rs):
             "best": round(max(rs), 1), "worst": round(min(rs), 1)}
 
 
-def pre_backtest(history):
-    """回測起漲前夕規則，並以「同期間所有股票隔日開盤買、持有 10 日」作為對照。"""
+def pre_backtest(history, market=None):
+    """回測起漲前夕規則，並以「同期間所有股票隔日開盤買、持有 10 日」作為對照。
+    market：與 history 對齊的大盤狀態 list，提供時只在大盤站上 20 日均線的日子進場，
+    對照組也只取這些日子，比較才公平。"""
     series = build_series(history)
     n = len(history)
     hold = PRE["max_hold"]
     last_t = n - PRE["trigger_days"] - hold - 1  # 確保每筆訊號都有完整的觀察與持有期
     rs, base, signals, no_break = [], [], 0, 0
     for t in range(60, last_t + 1):
+        if market and market[t] and market[t]["up"] is False:
+            continue  # 大盤跌破 20 日均線：暫停進場
         for s in series.values():
             r = s[t]
             if r is None or r["volume"] < 500_000:
@@ -518,4 +543,5 @@ def pre_backtest(history):
         "to": history[last_t][0].isoformat() if last_t >= 60 else None,
         "signals": signals, "no_break": no_break,
         "plan": _stats(rs), "baseline": _stats(base), "cost": ROUND_TRIP_COST,
+        "market_filter": bool(market),
     }

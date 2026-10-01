@@ -31,7 +31,8 @@ _backtests = {}  # 回測結果快取（歷史資料不變就不用重算）
 def run_screen(date_str, min_volume, small_cap, live=True):
     end = dt.datetime.strptime(date_str, "%Y%m%d").date() if date_str else dt.date.today()
     args = types.SimpleNamespace(min_score=SERVER_MIN_SCORE, min_volume=min_volume,
-                                 small_cap=small_cap, lookback=yaogu.LOOKBACK, live=live)
+                                 small_cap=small_cap, lookback=yaogu.LOOKBACK, live=live,
+                                 market_data=True)
     with _lock:
         res = yaogu.screen(end, args, log=False)
         history, trade_date = res["history"], res["trade_date"]
@@ -39,17 +40,22 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         _histories[trade_date.strftime("%Y%m%d")] = history
         _markets.update({c: r["market"] for c, r in history[-1][1].items()})
 
-        picks = strategy.tomorrow_picks(history, res["ref"], small_cap)
+        excluded = []
+        picks = strategy.tomorrow_picks(history, res["ref"], small_cap,
+                                        insti=res["insti"][-1], excluded=excluded)
         pre = strategy.pre_picks(history, res["ref"], small_cap)
         # 回測只用到昨天為止的資料，盤中即時資料更新不影響結果
         bt_key = (history[0][0], history[-2][0])
         if bt_key not in _backtests:
-            _backtests[bt_key] = (strategy.backtest(history), strategy.pre_backtest(history))
+            _backtests[bt_key] = (strategy.backtest(history, insti=res["insti"]),
+                                  strategy.pre_backtest(history, market=res["market"]))
     scanned = sum(1 for c in history[-1][1] if yaogu.is_common_stock(c))
     return {"trade_date": trade_date.isoformat(), "scanned": scanned, "live": res["live"],
             "market_open": yaogu.market_open_now(), "results": res["results"],
             "picks": picks, "backtest": _backtests[bt_key][0],
-            "pre": pre, "pre_backtest": _backtests[bt_key][1]}
+            "pre": pre, "pre_backtest": _backtests[bt_key][1],
+            "market": res["market"][-1], "insti_ready": res["insti"][-1] is not None,
+            "insti_excluded": excluded}
 
 
 def quote(code):

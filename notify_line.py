@@ -176,7 +176,8 @@ def summary_bubble(data):
     contents = [text("📊 這套規則的回測成績", size="md", weight="bold", color=INK)]
     if h:
         contents += [
-            text(f"{bt['from']} ～ {bt['to']}，共 {h['trades']} 筆交易，已扣手續費與證交稅",
+            text(f"{bt['from']} ～ {bt['to']}，共 {h['trades']} 筆交易，"
+                 f"{'已排除法人賣超、' if bt.get('insti_filter') else ''}已扣手續費與證交稅",
                  size="xxs", color=MUTED, wrap=True),
             {"type": "box", "layout": "horizontal", "contents": [
                 stat("平均報酬", f"{h['avg']:+.2f}%", UP if h["avg"] > 0 else DOWN),
@@ -187,6 +188,9 @@ def summary_bubble(data):
             text("勝率不到一半，獲利靠少數大漲的股票，一定要嚴守停損。" if h["win"] < 50
                  else "回測期間短，不代表未來表現。", size="xs", color=INK, wrap=True),
         ]
+    excluded = data.get("insti_excluded") or []
+    if excluded:
+        contents.append(text(f"已排除三大法人賣超：{'、'.join(excluded)}", size="xs", color=MUTED, wrap=True))
     more = len(data["picks"]) - MAX_PICKS
     if more > 0:
         contents.append(text(f"另有 {more} 檔候選，請見網頁。", size="xs", color=ACCENT, wrap=True))

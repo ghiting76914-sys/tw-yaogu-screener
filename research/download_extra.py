@@ -43,24 +43,8 @@ def download_taiex(days):
     print(f"加權指數：{len(taiex)} 天", flush=True)
 
 
-def parse_twse_insti(d):
-    out = {}
-    for r in d.get("data", []):
-        code = r[0].strip()
-        if yaogu.is_common_stock(code):
-            foreign = (num(r[4]) or 0) + (num(r[7]) or 0)
-            out[code] = [foreign, num(r[10]) or 0, num(r[18]) or 0]
-    return out
-
-
-def parse_tpex_insti(d):
-    out = {}
-    tables = d.get("tables") or []
-    for r in (tables[0].get("data", []) if tables else []):
-        code = r[0].strip()
-        if yaogu.is_common_stock(code):
-            out[code] = [num(r[10]) or 0, num(r[13]) or 0, num(r[23]) or 0]
-    return out
+parse_twse_insti = yaogu.parse_twse_insti
+parse_tpex_insti = yaogu.parse_tpex_insti
 
 
 def download_insti(days):

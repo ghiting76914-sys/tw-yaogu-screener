@@ -113,6 +113,63 @@ def collect(days, series, taiex, capital):
     return rows
 
 
+def collect_pre(days, series, taiex, capital):
+    """起漲前夕：符合 strategy.pre_passes 且 5 日內突破進場的交易。"""
+    n = len(days)
+    insti_cache = {}
+    rows = []
+    last_t = n - strategy.PRE["trigger_days"] - strategy.PRE["max_hold"] - 1
+    for t in range(60, last_t + 1):
+        for code, s in series.items():
+            r = s[t]
+            if r is None or r["volume"] < 500_000:
+                continue
+            f = strategy.pre_features(s, t)
+            if not f or not strategy.pre_passes(f):
+                continue
+            res = strategy.pre_simulate(s, t, f, n)
+            if res is None:
+                continue  # 5 日內沒突破，沒有進場
+            if days[t] not in insti_cache:
+                insti_cache[days[t]] = load_insti(days[t])
+            ins = insti_cache[days[t]]
+            iv = ins.get(code) if ins else None
+            up, mr5 = market_state(days, taiex, t)
+            cap = capital.get(code)
+            rows.append({
+                "t": t, "date": days[t], "code": code, "ret": res,
+                "box": f["box"], "dry": f["dry"], "spread": f["spread"], "vr": f["vr"], "pct": f["pct"],
+                "dist": (f["box_high"] / f["close"] - 1) * 100,
+                "cap_e": cap / 1e8 if cap else None, "price": f["close"],
+                "mkt_up": up, "mkt_r5": mr5,
+                "foreign": iv[0] / r["volume"] if iv else None,
+                "trust": iv[1] / r["volume"] if iv else None,
+                "insti_total": iv[2] / r["volume"] if iv else None,
+            })
+    return rows
+
+
+def baseline(days, series, taiex, hold, split_t):
+    """對照組：所有成交量 ≥ 500 張的股票，隔日開盤買、持有 hold 日收盤賣（每 2 天抽樣一次）。
+    依期間（訓練／驗證）與大盤狀態分組。"""
+    n = len(days)
+    out = defaultdict(list)
+    for t in range(60, n - hold - 1, 2):
+        up, _ = market_state(days, taiex, t)
+        for s in series.values():
+            r, nxt, end = s[t], s[t + 1], s[t + hold]
+            if not r or r["volume"] < 500_000 or not nxt or not nxt["open"] or not end or end["close"] is None:
+                continue
+            ret = (end["close"] / nxt["open"] - 1) * 100
+            if not -66 < ret < 160:
+                continue  # 減資、分割等價格斷層
+            row = {"ret": ret - strategy.ROUND_TRIP_COST}
+            period = "train" if t < split_t else "test"
+            out[(period, "all")].append(row)
+            out[(period, "up" if up else "down" if up is False else "na")].append(row)
+    return out
+
+
 def stats(rs):
     if not rs:
         return "  n=   0"
@@ -152,6 +209,40 @@ FILTERS = [
 ]
 
 
+PRE_FILTERS = [
+    ("現行規則（無額外濾網）", lambda r: True),
+    ("大盤站上 20 日均線", lambda r: r["mkt_up"] is True),
+    ("大盤在 20 日均線下", lambda r: r["mkt_up"] is False),
+    ("大盤 5 日上漲", lambda r: r["mkt_r5"] is not None and r["mkt_r5"] > 0),
+    ("投信買超", lambda r: r["trust"] is not None and r["trust"] > 0),
+    ("外資買超", lambda r: r["foreign"] is not None and r["foreign"] > 0),
+    ("三大法人合計買超", lambda r: r["insti_total"] is not None and r["insti_total"] > 0),
+    ("三大法人賣超", lambda r: r["insti_total"] is not None and r["insti_total"] < 0),
+    ("箱型 ≤ 8%", lambda r: r["box"] <= 8),
+    ("量縮 ≤ 0.6", lambda r: r["dry"] <= 0.6),
+    ("均線差 ≤ 1.5%", lambda r: r["spread"] <= 1.5),
+    ("已站上箱頂", lambda r: r["dist"] <= 0),
+    ("股本 < 10 億", lambda r: r["cap_e"] is not None and r["cap_e"] < 10),
+    ("股本 ≥ 30 億", lambda r: r["cap_e"] is not None and r["cap_e"] >= 30),
+    ("大盤多頭 + 法人買超", lambda r: r["mkt_up"] is True and r["insti_total"] is not None and r["insti_total"] > 0),
+    ("大盤多頭 + 投信買超", lambda r: r["mkt_up"] is True and r["trust"] is not None and r["trust"] > 0),
+]
+
+
+def print_table(title, rows, filters, split_t, base):
+    train = [r for r in rows if r["t"] < split_t]
+    test = [r for r in rows if r["t"] >= split_t]
+    print(f"\n==================== {title} ====================")
+    print(f"有進場的交易：訓練 {len(train)} 筆、驗證 {len(test)} 筆")
+    print(f"{'':20s}\t{'訓練期':44s}\t驗證期")
+    for label, key in (("對照：任意股票", "all"), ("對照：大盤多頭時任意股票", "up"),
+                       ("對照：大盤空頭時任意股票", "down")):
+        print(f"{label:16s}\t{stats(base[('train', key)])}\t{stats(base[('test', key)])}")
+    print("-" * 110)
+    for name, fn in filters:
+        print(f"{name:20s}\t{stats([r for r in train if fn(r)])}\t{stats([r for r in test if fn(r)])}")
+
+
 def main():
     days, series, taiex = load()
     ref_files = sorted(glob.glob(os.path.join(CACHE_DIR, "ref_*.json")))
@@ -160,20 +251,19 @@ def main():
     insti_days = sum(1 for d in days if os.path.exists(os.path.join(CACHE_DIR, f"insti_twse_{d}.json")))
     print(f"加權指數 {len(taiex)} 天、法人資料 {insti_days} 天")
 
-    rows = collect(days, series, taiex, capital)
     split_t = int(len(days) * TRAIN_RATIO)
-    train = [r for r in rows if r["t"] < split_t]
-    test = [r for r in rows if r["t"] >= split_t]
-    print(f"訓練期 {days[20]} ～ {days[split_t - 1]}，驗證期 {days[split_t]} ～ {days[-1]}")
-    print(f"有進場的交易：訓練 {len(train)} 筆、驗證 {len(test)} 筆\n")
+    print(f"訓練期 {days[60]} ～ {days[split_t - 1]}，驗證期 {days[split_t]} ～ {days[-1]}")
 
-    print(f"{'濾網':26s} {'訓練期':48s} 驗證期")
-    for name, fn in FILTERS:
-        print(f"{name:20s}\t{stats([r for r in train if fn(r)])}\t{stats([r for r in test if fn(r)])}")
+    rows = collect(days, series, taiex, capital)
+    print_table("明日強勢候選（持有最多 3 天）", rows, FILTERS, split_t,
+                baseline(days, series, taiex, 3, split_t))
+    pre_rows = collect_pre(days, series, taiex, capital)
+    print_table("起漲前夕（突破進場，持有最多 10 天）", pre_rows, PRE_FILTERS, split_t,
+                baseline(days, series, taiex, 10, split_t))
 
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "signals.json")
     with open(out, "w", encoding="utf-8") as fh:
-        json.dump({"days": days, "split_t": split_t, "rows": rows}, fh)
+        json.dump({"days": days, "split_t": split_t, "picks": rows, "pre": pre_rows}, fh)
     print(f"\n訊號明細已存到 {out}")
 
 

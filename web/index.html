@@ -245,6 +245,12 @@ svg.chart { width: 100%; height: auto; display: block; }
 }
 .pick:hover { border-color: var(--muted); }
 .pick.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.pick.paused { opacity: .6; }
+.paused-tag { font-size: 12px; font-weight: 700; color: var(--down); background: var(--down-soft); border-radius: 999px; padding: 1px 9px; }
+.filter-note { margin: 10px 0 0; padding: 8px 12px; border-radius: 8px; font-size: 13px; background: var(--panel-2); }
+.filter-note.ok { border-left: 3px solid var(--up); }
+.filter-note.bad { border-left: 3px solid var(--down); background: var(--down-soft); }
+.research { font-size: 12px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 8px; margin-top: 10px !important; }
 .pick-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .pick-head .rank { font-size: 13px; color: var(--muted); font-weight: 700; }
 .pick-head .px { margin-left: auto; text-align: right; }
@@ -727,15 +733,21 @@ function renderPicks() {
     ? `<p><b class="up">目前是盤中資料，名單會隨股價變動，建議 13:30 收盤後再看。</b></p>` : "";
   $("btBanner").innerHTML = `<div class="banner">
     <h3>這份名單怎麼來的</h3>
-    <div class="muted" style="font-size:13px">今天收盤後，找出「放量突破 60 日高點、收在最高價附近、均線向上、但 5 日漲幅還不到 20%」的股票，作為明天的觀察對象。</div>
+    <div class="muted" style="font-size:13px">今天收盤後，找出「放量突破 60 日高點、收在最高價附近、均線向上、但 5 日漲幅還不到 20%」的股票，並<b>排除三大法人賣超</b>的股票，作為明天的觀察對象。</div>
+    ${d.insti_ready === false
+      ? `<p class="filter-note bad">三大法人資料尚未公布（約 15:00 後），名單還沒排除法人賣超的股票。</p>`
+      : d.insti_excluded && d.insti_excluded.length
+        ? `<p class="filter-note ok">今天因三大法人賣超而排除：${d.insti_excluded.map(esc).join("、")}</p>`
+        : d.insti_excluded ? `<p class="filter-note ok">今天沒有因三大法人賣超而排除的股票。</p>` : ""}
     ${h ? `<div class="bt">
-      <div><div class="k">回測：照操作計畫進出</div><div class="v num">${val(h.avg)}<small>平均報酬</small></div></div>
+      <div><div class="k">回測：照操作計畫進出${bt.insti_filter ? "（已排除法人賣超）" : ""}</div><div class="v num">${val(h.avg)}<small>平均報酬</small></div></div>
       <div><div class="k">勝率</div><div class="v num">${h.win}%<small>${h.trades} 筆交易</small></div></div>
       <div><div class="k">最好 / 最差一筆</div><div class="v num">${val(h.best)} <small>/</small> ${val(h.worst)}</div></div>
     </div>` : ""}
     <p class="verdict">${verdict}</p>
     <p>回測期間 ${bt.from} ～ ${bt.to}（${bt.signal_days} 個交易日有訊號）。規則：隔天開盤落在進場區間才買（${bt.skipped_gap} 筆因開盤不在區間而略過）；盤中跌破停損出場；到目標一先賣一半、停損移到成本，到目標二全部出場；最多持有 3 天。已扣手續費與證交稅 ${bt.cost}%。對照：隔日開盤買、持有 1 日平均 ${val(bt.hold1 && bt.hold1.avg)}；持有 3 日不設停損停利平均 ${val(bt.hold3 && bt.hold3.avg)}、最差 ${val(bt.hold3 && bt.hold3.worst)}。</p>
     ${liveNote}
+    <p class="research">📚 2 年研究（2024/08～2026/10，前 1.5 年找條件、最後半年驗證，共 1,446 筆交易）：這套規則跟同期間隨便買幾乎沒有差別，沒有任何條件能讓訓練期轉為正報酬。唯一在兩段期間都成立的，是「三大法人賣超的訊號明顯較差」（平均 -1.6% 與 -1.2%），所以已經排除。</p>
   </div>`;
 
   if (!d.picks.length) {
@@ -799,16 +811,23 @@ function renderPre() {
         ? `比同期間隨便買好 ${diff.toFixed(2)} 個百分點，但<b>本身${h.avg > 0 ? "報酬很小" : "仍是虧損"}，沒有穩定的獲利優勢</b>。請當作觀察名單。`
         : "<b>近期回測沒有比隨便買更好</b>。這是教科書上的經典型態，但近期市場不買單，請當作觀察名單。";
   }
+  const m = d.market;
+  const paused = m && m.up === false;
+  const mktNote = !m ? `<p class="filter-note">加權指數資料不足，無法判斷大盤狀態。</p>`
+    : m.up ? `<p class="filter-note ok">大盤 ${fmt(m.close)} 點，站上 20 日均線（${fmt(m.ma20)}）：可依計畫操作。</p>`
+    : `<p class="filter-note bad">大盤 ${fmt(m.close)} 點，<b>跌破 20 日均線（${fmt(m.ma20)}）：今日暫停進場</b>。2 年研究中，大盤在 20 日均線下時這套型態平均 -1.0%（訓練期）與 -3.0%（驗證期）。名單僅供觀察。</p>`;
   $("preBanner").innerHTML = `<div class="banner">
     <h3>這份名單怎麼來的</h3>
-    <div class="muted" style="font-size:13px">找出「近 20 日箱型整理、成交量萎縮、均線糾結，股價貼近箱頂，今天溫和放量收紅」但<b>還沒突破</b>的股票。要等股價漲過箱頂才算起漲。</div>
+    <div class="muted" style="font-size:13px">找出「近 20 日箱型整理、成交量萎縮、均線糾結，股價貼近箱頂，今天溫和放量收紅」但<b>還沒突破</b>的股票。要等股價漲過箱頂才算起漲；<b>大盤跌破 20 日均線時暫停</b>。</div>
+    ${mktNote}
     ${h ? `<div class="bt">
-      <div><div class="k">回測：突破才進場</div><div class="v num">${val(h.avg)}<small>平均報酬</small></div></div>
+      <div><div class="k">回測：突破才進場${bt.market_filter ? "（大盤多頭才做）" : ""}</div><div class="v num">${val(h.avg)}<small>平均報酬</small></div></div>
       <div><div class="k">勝率</div><div class="v num">${h.win}%<small>${h.trades} 筆交易</small></div></div>
-      <div><div class="k">對照：同期間隨便買、抱 10 天</div><div class="v num">${val(b && b.avg)}<small>勝率 ${b ? b.win : "–"}%</small></div></div>
+      <div><div class="k">對照：${bt.market_filter ? "大盤多頭日" : "同期間"}隨便買、抱 10 天</div><div class="v num">${val(b && b.avg)}<small>勝率 ${b ? b.win : "–"}%</small></div></div>
     </div>` : ""}
     <p class="verdict">${verdict}</p>
-    ${h ? `<p>回測期間 ${bt.from} ～ ${bt.to}，共 ${bt.signals} 個訊號，其中 ${bt.no_break} 個在 5 天內沒有突破、不進場。規則：漲過箱頂才買；跌破停損出場；到目標價出場；最多持有 10 天。已扣手續費與證交稅 ${bt.cost}%。</p>` : ""}
+    ${h ? `<p>回測期間 ${bt.from} ～ ${bt.to}，共 ${bt.signals} 個訊號，其中 ${bt.no_break} 個在 5 天內沒有突破、不進場。規則：${bt.market_filter ? "大盤站上 20 日均線的日子才做；" : ""}漲過箱頂才買；跌破停損出場；到目標價出場；最多持有 10 天。已扣手續費與證交稅 ${bt.cost}%。</p>` : ""}
+    <p class="research">📚 2 年研究（2024/08～2026/10，前 1.5 年找條件、最後半年驗證，共 2,611 筆交易）：經典起漲型態本身跟同期間隨便買差不多。唯一在兩段期間都成立的，是「大盤跌破 20 日均線時明顯較差」，所以大盤弱時暫停。</p>
   </div>`;
 
   if (!d.pre.length) {
@@ -820,10 +839,11 @@ function renderPre() {
     const rel = (x) => `${x >= lv.trigger ? "+" : ""}${((x / lv.trigger - 1) * 100).toFixed(1)}%`;
     const dist = (lv.trigger / p["收盤"] - 1) * 100;
     return `
-    <article class="pick ${p["代號"] === state.selected ? "sel" : ""}" data-code="${p["代號"]}">
+    <article class="pick ${p["代號"] === state.selected ? "sel" : ""} ${paused ? "paused" : ""}" data-code="${p["代號"]}">
       <div class="pick-head">
         <span class="rank num">#${i + 1}</span>
         <span><span class="name" style="font-size:17px">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span></span>
+        ${paused ? `<span class="paused-tag">大盤偏弱・暫停</span>` : ""}
         <span class="strength">型態完整度 <span class="bar"><i style="width:${p["強度"]}%"></i></span><b class="num" style="color:var(--text)">${p["強度"]}</b></span>
         <span class="px num"><b class="${p["漲跌%"] > 0 ? "up" : "down"}">${fmt(p["收盤"])}</b> ${pct(p["漲跌%"])}%</span>
       </div>

@@ -294,6 +294,101 @@ def load_reference(today):
     return ref
 
 
+# ---------------------------------------------------------------- 大盤與三大法人
+
+TAIEX_REFRESH = 1800  # 當月加權指數尚缺今天時，間隔多久重抓一次（秒）
+
+
+def load_taiex(dates):
+    """加權指數每日收盤 {YYYYMMDD: 收盤}，涵蓋 dates 所在月份與前一個月（20 日均線需要）。
+    來源：證交所 FMTQIK，每月一次請求；與研究程式共用 data/cache/taiex.json。"""
+    path = os.path.join(CACHE_DIR, "taiex.json")
+    data = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    fetched_at = data.pop("_fetched_at", {})
+    first = min(dates)
+    months = {(d.year, d.month) for d in dates} | {((first.replace(day=1) - dt.timedelta(days=1)).year,
+                                                   (first.replace(day=1) - dt.timedelta(days=1)).month)}
+    today = dt.date.today()
+    changed = False
+    for y, m in sorted(months):
+        key = f"{y}{m:02d}"
+        have = any(k.startswith(key) for k in data)
+        current = (y, m) == (today.year, today.month)
+        stale = (current and today.strftime("%Y%m%d") not in data
+                 and time.time() - fetched_at.get(key, 0) > TAIEX_REFRESH)
+        if have and not stale:
+            continue
+        for row in fetch_json(f"https://www.twse.com.tw/exchangeReport/FMTQIK?response=json&date={key}01").get("data", []):
+            ry, rm, rd = row[0].split("/")
+            data[f"{int(ry) + 1911}{rm}{rd}"] = num(row[4])
+        fetched_at[key] = time.time()
+        changed = True
+    if changed:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({**data, "_fetched_at": fetched_at}, fh)
+    return data
+
+
+def market_state(taiex, date):
+    """date 當天（含）加權指數是否站上 20 日均線。資料不足回傳 None。"""
+    ymd = date.strftime("%Y%m%d")
+    closes = [taiex[k] for k in sorted(taiex) if k <= ymd and taiex[k]][-20:]
+    if len(closes) < 20 or ymd not in taiex:
+        return None
+    ma20 = sum(closes) / 20
+    return {"date": date.isoformat(), "close": taiex[ymd], "ma20": round(ma20, 2), "up": taiex[ymd] > ma20}
+
+
+def parse_twse_insti(d):
+    out = {}
+    for r in d.get("data", []):
+        code = r[0].strip()
+        if is_common_stock(code):
+            foreign = (num(r[4]) or 0) + (num(r[7]) or 0)  # 外陸資（不含外資自營商）+ 外資自營商
+            out[code] = [foreign, num(r[10]) or 0, num(r[18]) or 0]
+    return out
+
+
+def parse_tpex_insti(d):
+    out = {}
+    tables = d.get("tables") or []
+    for r in (tables[0].get("data", []) if tables else []):
+        code = r[0].strip()
+        if is_common_stock(code):
+            out[code] = [num(r[10]) or 0, num(r[13]) or 0, num(r[23]) or 0]  # 外資合計、投信、三大法人合計
+    return out
+
+
+def load_insti(date):
+    """三大法人買賣超 {代號: [外資, 投信, 三大法人合計]}（股數）。當天尚未公布回傳 None。"""
+    ymd = date.strftime("%Y%m%d")
+    out = {}
+    for market in ("twse", "tpex"):
+        path = os.path.join(CACHE_DIR, f"insti_{market}_{ymd}.json")
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as fh:
+                rows = json.load(fh)
+        else:
+            if market == "twse":
+                rows = parse_twse_insti(fetch_json(
+                    f"https://www.twse.com.tw/fund/T86?response=json&date={ymd}&selectType=ALLBUT0999"))
+            else:
+                rows = parse_tpex_insti(fetch_json(
+                    "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW"
+                    f"&date={date.year}%2F{date.month:02d}%2F{date.day:02d}&response=json"))
+            if not rows:
+                return None  # 還沒公布，不寫入快取
+            os.makedirs(CACHE_DIR, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(rows, fh)
+        out.update(rows)
+    return out
+
+
 # ---------------------------------------------------------------- 指標與評分
 
 def pct_change(row):
@@ -428,6 +523,9 @@ def screen(end, args, log=True):
     """執行篩選，網頁版與命令列共用。
 
     回傳 dict：trade_date、results、history、ref、live（今天官方資料未公布、改用即時行情時）。
+    args.market_data 為真時另外回傳：
+      insti：與 history 對齊的三大法人買賣超 list（尚未公布的日子為 None）
+      market：與 history 對齊的大盤狀態 list（見 market_state）
     """
     if log:
         print(f"讀取行情資料（首次執行需下載約 {args.lookback} 個交易日，約需數分鐘，之後會使用快取）…",
@@ -460,7 +558,22 @@ def screen(end, args, log=True):
         if r and r["分數"] >= args.min_score:
             results.append(r)
     results.sort(key=lambda r: (r["分數"], r["量比"] or 0), reverse=True)
-    return {"trade_date": trade_date, "results": results, "history": history, "ref": ref, "live": live}
+    res = {"trade_date": trade_date, "results": results, "history": history, "ref": ref, "live": live}
+
+    if getattr(args, "market_data", False):
+        if log:
+            print("讀取加權指數與三大法人買賣超…", file=sys.stderr)
+        dates = [d for d, _ in history]
+        taiex = load_taiex(dates)
+        res["market"] = [market_state(taiex, d) for d in dates]
+        res["insti"] = []
+        for d in dates:
+            try:
+                res["insti"].append(load_insti(d))
+            except Exception as e:  # 單日法人資料抓不到不影響其他功能
+                print(f"  {d} 法人資料讀取失敗：{e}", file=sys.stderr)
+                res["insti"].append(None)
+    return res
 
 
 def main():
