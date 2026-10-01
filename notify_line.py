@@ -26,40 +26,56 @@ SITE_URL = os.environ.get("SITE_URL", "https://ghiting76914-sys.github.io/tw-yao
 MAX_PICKS = 5
 
 
-def build_message(data):
-    picks = data["picks"]
-    lines = [f"📈 明日強勢候選｜{data['trade_date']}"]
+def build_messages(data):
+    """每檔股票一個對話框（LINE 一次推播最多 5 個，只算 1 則訊息額度）。
+    回測摘要與網站連結附在最後一個對話框。"""
+    picks = data["picks"][:MAX_PICKS]
+    total = len(data["picks"])
+
+    footer = []
+    if total > MAX_PICKS:
+        footer.append(f"另有 {total - MAX_PICKS} 檔，請見網頁。")
+    h = data["backtest"].get("hold3_stop")
+    if h:
+        footer.append(f"📊 回測（持有 3 日含停損）：平均 {h['avg']:+.2f}%、勝率 {h['win']}%（{h['trades']} 筆）")
+    footer += [
+        "⚠️ 規則選股的觀察名單，非投資建議，請自行控管風險。",
+        f"完整內容與 K 線：{SITE_URL}#picks",
+    ]
+
     if not picks:
-        lines += ["", "今天沒有符合條件的股票。", "條件刻意設得嚴格，沒有好機會時寧可空手。"]
-    for i, p in enumerate(picks[:MAX_PICKS], 1):
-        lines += [
+        return ["\n".join([f"📈 明日強勢候選｜{data['trade_date']}", "",
+                            "今天沒有符合條件的股票。", "條件刻意設得嚴格，沒有好機會時寧可空手。", "",
+                            *footer])]
+
+    messages = []
+    for i, p in enumerate(picks, 1):
+        lines = [
+            f"📈 明日強勢候選｜{data['trade_date']}（{i}/{len(picks)}）",
             "",
-            f"#{i} {p['名稱']} {p['代號']}（{p['市場']}）",
+            f"{p['名稱']} {p['代號']}（{p['市場']}）",
             f"收盤 {p['收盤']:g}（{p['漲跌%']:+.2f}%）強度 {p['強度']}",
+            "",
             "【理由】",
-            *[f"・{r}" for r in p["理由"][:3]],
+            *[f"・{r}" for r in p["理由"]],
+            "",
             "【操作】",
             f"・{p['計畫']['entry']}",
             f"・{p['計畫']['stop']}",
+            f"・{p['計畫']['exit']}",
+            "",
             "【風險】",
-            *[f"・{r}" for r in p["風險"][:2]],
+            *[f"・{r}" for r in p["風險"]],
         ]
-    if len(picks) > MAX_PICKS:
-        lines += ["", f"另有 {len(picks) - MAX_PICKS} 檔，請見網頁。"]
-
-    h = data["backtest"].get("hold3_stop")
-    if h:
-        lines += ["", f"📊 回測（持有 3 日含停損）：平均 {h['avg']:+.2f}%、勝率 {h['win']}%（{h['trades']} 筆）"]
-    lines += [
-        "⚠️ 規則選股的觀察名單，非投資建議，請自行控管風險。",
-        "",
-        f"完整內容與 K 線：{SITE_URL}#picks",
-    ]
-    return "\n".join(lines)
+        if i == len(picks):
+            lines += ["", "──────────", *footer]
+        messages.append("\n".join(lines))
+    return messages
 
 
-def push(token, user_id, text):
-    body = json.dumps({"to": user_id, "messages": [{"type": "text", "text": text[:5000]}]}).encode()
+def push(token, user_id, texts):
+    messages = [{"type": "text", "text": t[:5000]} for t in texts[:5]]
+    body = json.dumps({"to": user_id, "messages": messages}).encode()
     req = urllib.request.Request(
         "https://api.line.me/v2/bot/message/push", data=body, method="POST",
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"})
@@ -78,9 +94,9 @@ def main():
 
     with open(LATEST, encoding="utf-8") as fh:
         data = json.load(fh)
-    text = build_message(data)
+    texts = build_messages(data)
     if args.dry_run:
-        print(text)
+        print("\n\n========== 下一個對話框 ==========\n\n".join(texts))
         return
 
     # 去掉貼上時可能多出的空白與換行
@@ -95,7 +111,7 @@ def main():
         print(f"{data['trade_date']} 已發送過，略過")
         return
 
-    push(token, user_id, text)
+    push(token, user_id, texts)
     os.makedirs(CACHE_DIR, exist_ok=True)
     open(marker, "w").close()
     print(f"已傳送 {data['trade_date']} 明日強勢候選（{len(data['picks'])} 檔）到 LINE")
