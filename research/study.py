@@ -30,7 +30,8 @@ def load():
     for f in sorted(glob.glob(os.path.join(CACHE_DIR, "twse_*.json"))):
         ymd = os.path.basename(f)[5:13]
         tp = os.path.join(CACHE_DIR, f"tpex_{ymd}.json")
-        if os.path.exists(tp):
+        # 假日也會留下空的快取檔，只有兩個市場都有資料才算交易日
+        if os.path.exists(tp) and os.path.getsize(f) > 10 and os.path.getsize(tp) > 10:
             days.append(ymd)
     n = len(days)
     series = defaultdict(lambda: [None] * n)

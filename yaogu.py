@@ -25,6 +25,9 @@ CACHE_DIR = os.path.join(BASE_DIR, "data", "cache")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh) tw-yaogu-screener"}
 
+# 抓取的交易日數：60 日新高、起漲前夕的 60 日整理期都需要 60 天，多出來的天數用於回測
+LOOKBACK = 121
+
 # 證交所對頻繁請求會暫時封鎖 IP，抓歷史資料時每次請求間隔幾秒
 REQUEST_INTERVAL = 3.0
 _last_request = 0.0
@@ -467,7 +470,7 @@ def main():
     p.add_argument("--top", type=int, default=50, help="最多顯示幾檔（預設 50）")
     p.add_argument("--min-volume", type=float, default=500, help="最低成交張數（預設 500）")
     p.add_argument("--small-cap", type=float, default=10, help="小股本門檻，單位億元（預設 10）")
-    p.add_argument("--lookback", type=int, default=61, help="抓取交易日數（預設 61，用於 60 日新高）")
+    p.add_argument("--lookback", type=int, default=LOOKBACK, help=f"抓取交易日數（預設 {LOOKBACK}）")
     p.add_argument("--live", action="store_true", help="今天官方資料未公布時，改用即時行情")
     args = p.parse_args()
 

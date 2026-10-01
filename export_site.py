@@ -22,7 +22,8 @@ def main():
     data["market_open"] = False
 
     date_key = data["trade_date"].replace("-", "")
-    codes = {r["代號"] for r in data["results"]} | {p["代號"] for p in data["picks"]}
+    codes = ({r["代號"] for r in data["results"]} | {p["代號"] for p in data["picks"]}
+             | {p["代號"] for p in data["pre"]})
     charts = {c: server.chart_data(c, date_key) for c in sorted(codes)}
 
     shutil.rmtree(SITE_DIR, ignore_errors=True)
@@ -38,7 +39,7 @@ def main():
     open(os.path.join(SITE_DIR, ".nojekyll"), "w").close()
 
     print(f"已產生 {SITE_DIR}：交易日 {data['trade_date']}，雷達 {len(data['results'])} 檔，"
-          f"明日候選 {len(data['picks'])} 檔")
+          f"明日候選 {len(data['picks'])} 檔，起漲前夕 {len(data['pre'])} 檔")
 
 
 if __name__ == "__main__":

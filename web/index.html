@@ -307,6 +307,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
   <nav class="tabs" id="tabs">
     <button class="on" data-v="radar">妖股雷達<span class="count num" id="cntRadar">–</span></button>
     <button data-v="picks">明日強勢候選<span class="count num" id="cntPicks">–</span></button>
+    <button data-v="pre">起漲前夕<span class="count num" id="cntPre">–</span></button>
   </nav>
 
   <div id="radarTop">
@@ -379,6 +380,10 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     <div id="picksView" hidden>
       <div id="btBanner"></div>
       <div class="picks" id="picks"></div>
+    </div>
+    <div id="preView" hidden>
+      <div id="preBanner"></div>
+      <div class="picks" id="pre"></div>
     </div>
     <div class="card" id="radarView">
       <div class="table-wrap">
@@ -458,6 +463,7 @@ async function runScreen(silent = false) {
     $("status").textContent = "";
     $("tbody").innerHTML = "";
     $("picks").innerHTML = "";
+    $("pre").innerHTML = "";
     $("tableMsg").innerHTML = `<div class="empty"><div class="spinner"></div>正在讀取證交所與櫃買中心資料…<br><small>盤中或剛收盤會改抓全市場即時行情，約需 40 秒</small></div>`;
   }
   const params = new URLSearchParams({
@@ -483,7 +489,8 @@ async function runScreen(silent = false) {
     $("tableMsg").innerHTML = "";
     render();
     renderPicks();
-    const first = state.view === "picks" ? json.picks[0] : state.rows[0];
+    renderPre();
+    const first = listFor(state.view)[0];
     const keep = state.selected && findStock(state.selected);
     if (keep) select(state.selected);
     else if (first) select(first["代號"]);
@@ -609,11 +616,18 @@ function showEmptyDetail() {
   $("detail").innerHTML = `<div class="empty">點選左側股票查看 K 線與訊號</div>`;
 }
 
+function listFor(view) {
+  if (!state.data) return [];
+  if (view === "picks") return state.data.picks || [];
+  if (view === "pre") return state.data.pre || [];
+  return state.rows;
+}
+
 function findStock(code) {
   const r = state.data.results.find((x) => x["代號"] === code);
   if (r) return r;
-  const p = state.data.picks.find((x) => x["代號"] === code);
-  return p && { ...p, "分數": "–", "訊號": "", "20日%": null, "週轉率%": null };
+  const p = (state.data.picks || []).concat(state.data.pre || []).find((x) => x["代號"] === code);
+  return p && { ...p, "分數": "–", "訊號": "", "20日%": null, "週轉率%": null, "5日%": p["5日%"] ?? null };
 }
 
 async function select(code) {
@@ -666,7 +680,11 @@ async function select(code) {
       bars = json.bars;
     }
     if (state.selected !== code) return;
-    drawChart(bars);
+    const pre = (state.data.pre || []).find((x) => x["代號"] === code);
+    drawChart(bars, pre ? [
+      { price: pre["箱頂"], label: "箱頂", color: "var(--up)" },
+      { price: pre["箱底"], label: "箱底", color: "var(--down)" },
+    ] : []);
   } catch (e) {
     $("chart").innerHTML = `<div class="empty">K 線讀取失敗：${esc(e.message)}</div>`;
   }
@@ -766,21 +784,93 @@ function ladder(p) {
   </div>`;
 }
 
+function renderPre() {
+  const d = state.data;
+  if (!d || !d.pre) return;
+  $("cntPre").textContent = d.pre.length;
+  const bt = d.pre_backtest || {}, h = bt.plan, b = bt.baseline;
+  const val = (x) => x == null ? "–" : `${pct(x)}%`;
+  let verdict = "回測樣本不足（需要 76 個交易日以上的資料），還無法評估這套規則。";
+  if (h && b) {
+    const diff = h.avg - b.avg;
+    verdict = h.avg > 0 && diff > 0.3
+      ? "近期回測勝過同期間隨便買，但期間短、樣本少，不代表未來會一樣。"
+      : diff > 0
+        ? `比同期間隨便買好 ${diff.toFixed(2)} 個百分點，但<b>本身${h.avg > 0 ? "報酬很小" : "仍是虧損"}，沒有穩定的獲利優勢</b>。請當作觀察名單。`
+        : "<b>近期回測沒有比隨便買更好</b>。這是教科書上的經典型態，但近期市場不買單，請當作觀察名單。";
+  }
+  $("preBanner").innerHTML = `<div class="banner">
+    <h3>這份名單怎麼來的</h3>
+    <div class="muted" style="font-size:13px">找出「近 20 日箱型整理、成交量萎縮、均線糾結，股價貼近箱頂，今天溫和放量收紅」但<b>還沒突破</b>的股票。要等股價漲過箱頂才算起漲。</div>
+    ${h ? `<div class="bt">
+      <div><div class="k">回測：突破才進場</div><div class="v num">${val(h.avg)}<small>平均報酬</small></div></div>
+      <div><div class="k">勝率</div><div class="v num">${h.win}%<small>${h.trades} 筆交易</small></div></div>
+      <div><div class="k">對照：同期間隨便買、抱 10 天</div><div class="v num">${val(b && b.avg)}<small>勝率 ${b ? b.win : "–"}%</small></div></div>
+    </div>` : ""}
+    <p class="verdict">${verdict}</p>
+    ${h ? `<p>回測期間 ${bt.from} ～ ${bt.to}，共 ${bt.signals} 個訊號，其中 ${bt.no_break} 個在 5 天內沒有突破、不進場。規則：漲過箱頂才買；跌破停損出場；到目標價出場；最多持有 10 天。已扣手續費與證交稅 ${bt.cost}%。</p>` : ""}
+  </div>`;
+
+  if (!d.pre.length) {
+    $("pre").innerHTML = `<div class="card empty">今天沒有符合起漲前夕型態的股票。</div>`;
+    return;
+  }
+  $("pre").innerHTML = d.pre.map((p, i) => {
+    const lv = p["計畫"].levels;
+    const rel = (x) => `${x >= lv.trigger ? "+" : ""}${((x / lv.trigger - 1) * 100).toFixed(1)}%`;
+    const dist = (lv.trigger / p["收盤"] - 1) * 100;
+    return `
+    <article class="pick ${p["代號"] === state.selected ? "sel" : ""}" data-code="${p["代號"]}">
+      <div class="pick-head">
+        <span class="rank num">#${i + 1}</span>
+        <span><span class="name" style="font-size:17px">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span></span>
+        <span class="strength">型態完整度 <span class="bar"><i style="width:${p["強度"]}%"></i></span><b class="num" style="color:var(--text)">${p["強度"]}</b></span>
+        <span class="px num"><b class="${p["漲跌%"] > 0 ? "up" : "down"}">${fmt(p["收盤"])}</b> ${pct(p["漲跌%"])}%</span>
+      </div>
+      <div class="ladder num">
+        <div><div class="k">突破買進價</div><div class="v">${lv.trigger}</div><div class="s muted">${dist <= 0 ? "收盤已站上，留意明天能否續強" : `距收盤 +${dist.toFixed(1)}%`}</div></div>
+        <div><div class="k">停損</div><div class="v down">${lv.stop}</div><div class="s down">${rel(lv.stop)}</div></div>
+        <div><div class="k">目標</div><div class="v up">${lv.target}</div><div class="s up">${rel(lv.target)}</div></div>
+        <div><div class="k">箱型區間</div><div class="v">${p["箱底"]}～${p["箱頂"]}</div><div class="s muted">近 20 日</div></div>
+      </div>
+      <div class="pick-cols">
+        <div>
+          <h4>為什麼可能起漲</h4>
+          <ul class="why">${p["理由"].map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+        </div>
+        <div>
+          <h4>操作參考</h4>
+          <dl class="plan">
+            <dt>進場</dt><dd>${esc(p["計畫"].entry)}</dd>
+            <dt>停損</dt><dd>${esc(p["計畫"].stop)}</dd>
+            <dt>目標</dt><dd>${esc(p["計畫"].target)}</dd>
+            <dt>期限</dt><dd>${esc(p["計畫"].exit)}</dd>
+          </dl>
+          <h4>風險</h4>
+          <ul class="risk">${p["風險"].map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+        </div>
+      </div>
+    </article>`;
+  }).join("");
+}
+
 function setView(v) {
   state.view = v;
-  history.replaceState(null, "", v === "picks" ? "#picks" : location.pathname);
+  history.replaceState(null, "", v === "radar" ? location.pathname : `#${v}`);
   $("tabs").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
   $("radarTop").hidden = v !== "radar";
   $("radarView").hidden = v !== "radar";
   $("picksView").hidden = v !== "picks";
-  const list = v === "picks" ? state.data?.picks : state.rows;
+  $("preView").hidden = v !== "pre";
+  const list = listFor(v);
   if (list && list.length && !list.some((x) => x["代號"] === state.selected)) select(list[0]["代號"]);
 }
 
 // ---------------------------------------------------------------- K 線圖（SVG）
 
-function drawChart(bars) {
+function drawChart(bars, lines = []) {
   const el = $("chart");
+  bars = (bars || []).slice(-61);  // 今日 + 前 60 日
   if (!bars || bars.length < 2) { el.innerHTML = `<div class="empty">資料不足</div>`; return; }
   const W = 600, PH = 230, VH = 70, GAP = 14, PAD_R = 52, PAD_B = 20, PAD_T = 10;
   const H = PAD_T + PH + GAP + VH + PAD_B;
@@ -803,6 +893,12 @@ function drawChart(bars) {
   const prevHigh = Math.max(...bars.slice(0, -1).map((b) => b.high));
   s += `<line x1="0" x2="${W - PAD_R}" y1="${y(prevHigh)}" y2="${y(prevHigh)}" stroke="var(--info)" stroke-dasharray="4 4" stroke-width="1"/>`;
   s += `<text x="4" y="${y(prevHigh) - 4}" font-size="10" fill="var(--info)">前高 ${prevHigh}</text>`;
+  // 箱型整理的上下緣（近 20 日）
+  const boxX = x(Math.max(0, n - 21)) - cw / 2;
+  lines.forEach((ln) => {
+    s += `<line x1="${boxX}" x2="${W - PAD_R}" y1="${y(ln.price)}" y2="${y(ln.price)}" stroke="${ln.color}" stroke-width="1.2"/>`;
+    s += `<text x="${boxX + 4}" y="${y(ln.price) + (ln.label === "箱底" ? 12 : -4)}" font-size="10" fill="${ln.color}">${ln.label} ${ln.price}</text>`;
+  });
 
   // 5 日均線
   let ma = "";
@@ -883,6 +979,10 @@ $("tabs").addEventListener("click", (e) => {
   const b = e.target.closest("button");
   if (b) setView(b.dataset.v);
 });
+$("pre").addEventListener("click", (e) => {
+  const el = e.target.closest(".pick");
+  if (el) select(el.dataset.code);
+});
 $("picks").addEventListener("click", (e) => {
   const el = e.target.closest(".pick");
   if (el) select(el.dataset.code);
@@ -892,7 +992,7 @@ $("tbody").addEventListener("click", (e) => {
   if (tr) select(tr.dataset.code);
 });
 document.addEventListener("keydown", (e) => {
-  const list = state.view === "picks" ? state.data?.picks || [] : state.rows;
+  const list = listFor(state.view);
   if (!list.length || !["ArrowDown", "ArrowUp"].includes(e.key) || e.target.tagName === "INPUT") return;
   e.preventDefault();
   const i = list.findIndex((r) => r["代號"] === state.selected);
@@ -907,7 +1007,7 @@ if (STATIC) {
   document.querySelector("footer").insertAdjacentHTML("afterbegin", "每個交易日收盤後自動更新。");
 }
 renderHead();
-if (location.hash === "#picks") setView("picks");
+if (["#picks", "#pre"].includes(location.hash)) setView(location.hash.slice(1));
 runScreen();
 </script>
 </body>
