@@ -55,7 +55,7 @@ python3 server.py
 
 ## 網路版（GitHub Pages）
 
-`.github/workflows/update.yml` 會在每個交易日台灣時間 15:40、17:30 自動執行：
+`.github/workflows/update.yml` 會在每個交易日台灣時間 15:40、16:20、17:10、18:30、20:15 自動執行（GitHub 排程可能延遲或被略過，所以安排多次；LINE 同一天只發送一次）：
 
 1. 下載當天行情（前一次的資料存在 GitHub Actions 快取，不用重抓）
 2. 執行 `export_site.py`，把篩選結果、明日候選、回測與 K 線資料存成 `site/data/*.json`
