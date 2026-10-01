@@ -250,6 +250,23 @@ svg.chart { width: 100%; height: auto; display: block; }
 .filter-note { margin: 10px 0 0; padding: 8px 12px; border-radius: 8px; font-size: 13px; background: var(--panel-2); }
 .filter-note.ok { border-left: 3px solid var(--up); }
 .filter-note.bad { border-left: 3px solid var(--down); background: var(--down-soft); }
+.etf-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.etf-head .p { font-size: 30px; font-weight: 700; }
+.etf-verdict { font-size: 18px; font-weight: 700; margin: 6px 0 4px; }
+.etf-verdict .up { color: var(--accent); }
+.thermo { margin: 14px 0 4px; }
+.thermo .track { position: relative; height: 10px; border-radius: 5px;
+  background: linear-gradient(90deg, var(--info) 0%, var(--panel-2) 35%, var(--panel-2) 65%, var(--up) 100%); }
+.thermo .mark { position: absolute; top: -5px; width: 4px; height: 20px; background: var(--text); border-radius: 2px; transform: translateX(-2px); }
+.thermo .scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 6px; }
+.bt-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+.bt-table th, .bt-table td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+.bt-table th:first-child, .bt-table td:first-child { text-align: left; white-space: normal; }
+.bt-table th { font-size: 12px; color: var(--muted); font-weight: 600; }
+.bt-table tr.base td { font-weight: 700; background: var(--panel-2); }
+.bt-wrap { overflow-x: auto; }
+.etf-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow); margin-top: 12px; }
+.etf-card h3 { margin: 0 0 6px; font-size: 14px; }
 .research { font-size: 12px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 8px; margin-top: 10px !important; }
 .pick-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .pick-head .rank { font-size: 13px; color: var(--muted); font-weight: 700; }
@@ -314,6 +331,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     <button class="on" data-v="radar">妖股雷達<span class="count num" id="cntRadar">–</span></button>
     <button data-v="picks">明日強勢候選<span class="count num" id="cntPicks">–</span></button>
     <button data-v="pre">起漲前夕<span class="count num" id="cntPre">–</span></button>
+    <button data-v="etf">0050 專區<span class="count" id="etfTemp">–</span></button>
   </nav>
 
   <div id="radarTop">
@@ -387,6 +405,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
       <div id="btBanner"></div>
       <div class="picks" id="picks"></div>
     </div>
+    <div id="etfView" hidden></div>
     <div id="preView" hidden>
       <div id="preBanner"></div>
       <div class="picks" id="pre"></div>
@@ -496,9 +515,11 @@ async function runScreen(silent = false) {
     render();
     renderPicks();
     renderPre();
+    renderEtf();
     const first = listFor(state.view)[0];
     const keep = state.selected && findStock(state.selected);
-    if (keep) select(state.selected);
+    if (state.view === "etf") renderEtfDetail();  // 0050 專區的右側是 0050 K 線，不選個股
+    else if (keep) select(state.selected);
     else if (first) select(first["代號"]);
     else showEmptyDetail();
     // 盤中每 3 分鐘自動更新全市場
@@ -874,6 +895,89 @@ function renderPre() {
   }).join("");
 }
 
+// ---------------------------------------------------------------- 0050 專區
+
+function renderEtf() {
+  const e = state.data && state.data.etf;
+  if (!e) {
+    $("etfView").innerHTML = `<div class="card empty">0050 資料讀取失敗，請稍後重新整理。</div>`;
+    $("etfTemp").textContent = "–";
+    return;
+  }
+  $("etfTemp").textContent = e.temp;
+  const tempCls = e.temp === "偏熱" ? "up" : e.temp === "偏冷" ? "down" : "";
+  const early = e.trading_day_of_month <= 3;
+  const bt = e.backtest;
+  const worst = Math.max(...bt.rows.map((r) => r.diff[0]));
+  const second = bt.rows.filter((r) => r.diff[0] > 0).map((r) => r.diff[0]);
+  const lv = e.levels.map((l) => `
+    <div><div class="k">${l.label}</div><div class="v">${fmt(l.price)}</div>
+      <div class="s ${l.above ? "muted" : "down"}">${l.above ? "已高於現價" : `${l.diff.toFixed(1)}%｜20 天內碰到 ${l.hit ?? "–"}%`}</div></div>`).join("");
+  $("etfView").innerHTML = `
+    <div class="banner">
+      <h3>今天怎麼買 0050</h3>
+      <div class="etf-verdict">${early
+        ? `本月第 ${e.trading_day_of_month} 個交易日：<span class="up">還沒買的話，明天開盤直接買</span>`
+        : `每月固定買、越早越好。<span class="up">本月還沒買的話，明天開盤直接買</span>，不需要等低點`}</div>
+      <div class="muted" style="font-size:13px">13 年回測（${bt.from} ～ ${bt.to}）：所有「掛低價等回檔」的買法，平均成本都比「每月第一個交易日開盤直接買」<b>高 ${Math.min(...second).toFixed(1)}%～${worst.toFixed(1)}%</b>，三個子期間結果一致。0050 長期向上，等待的代價比等到的折扣大。</div>
+    </div>
+
+    <div class="etf-card">
+      <div class="etf-head">
+        <b style="font-size:17px">元大台灣50</b><span class="code num">0050</span>
+        <span class="p num ${e.pct > 0 ? "up" : e.pct < 0 ? "down" : ""}">${fmt(e.close)}</span>
+        <span class="num">${pct(e.pct)}%</span>
+        <span class="muted" style="font-size:12px">${e.date} 收盤</span>
+      </div>
+      <div class="ladder num">
+        <div><div class="k">明日開盤（建議）</div><div class="v up">市價買進</div><div class="s muted">今日收盤 ${fmt(e.close)}</div></div>
+        ${lv}
+      </div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">想掛限價單的話可參考均線價位，但要接受等不到的可能：歷史上掛在月線，20 個交易日內只有約一半的機會成交。回測中最不吃虧的折衷做法是「一半月初直接買、一半掛月線，月底沒成交就補買」，平均成本只比直接買高 ${bt.rows.find((r) => r.name.startsWith("兩檔"))?.diff[0].toFixed(2)}%。</p>
+    </div>
+
+    <div class="etf-card">
+      <h3>現在貴不貴？ <span class="${tempCls}" style="font-weight:700">${e.temp}</span></h3>
+      <div class="muted" style="font-size:13px">0050 目前比季線（60 日均線）${e.bias60 >= 0 ? "高" : "低"} <b class="num">${Math.abs(e.bias60).toFixed(1)}%</b>，在過去 13 年排第 <b class="num">${e.bias_rank}</b> 百分位；距離 52 週高點 <b class="num">${e.dd.toFixed(1)}%</b>。</div>
+      <div class="thermo">
+        <div class="track"><div class="mark" style="left:${e.bias_rank}%"></div></div>
+        <div class="scale"><span>偏冷（便宜）</span><span>正常</span><span>偏熱（貴）</span></div>
+      </div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">溫度計只用來了解現在的位置，<b>不建議因為偏熱就停買</b>：13 年回測中，「過熱時暫停或減碼、跌破季線或跌深再加碼」的做法，期末總資產都比單純定期定額少 0.2%～1.8%（最近 5 年少 1.0%～4.1%）。</p>
+    </div>
+
+    <div class="etf-card">
+      <h3>各種買法的回測（每月投入相同金額）</h3>
+      <div class="muted" style="font-size:12px">數字為平均成本相對「定期定額（月初開盤）」高多少，越低越好。使用還原股價（含配息、2025/06 一拆四），買進手續費 0.1425%；限價單整個月沒成交就月底收盤補買，每種買法投入的金額相同。</div>
+      <div class="bt-wrap"><table class="bt-table num">
+        <thead><tr><th>買法</th>${bt.periods.map((p) => `<th>${p}</th>`).join("")}</tr></thead>
+        <tbody>${bt.rows.map((r, i) => `<tr class="${i === 0 ? "base" : ""}"><td>${esc(r.name)}</td>${r.diff.map((d) =>
+          `<td class="${i === 0 ? "" : d > 0 ? "up" : "down"}">${i === 0 ? "基準" : (d > 0 ? "+" : "") + d.toFixed(2) + "%"}</td>`).join("")}</tr>`).join("")}</tbody>
+      </table></div>
+      <p class="research">回測只代表過去 13 年台股長期上漲的情況。若未來出現長期下跌，等低點的買法可能會比較好。非投資建議，請依自己的資金規劃分配。</p>
+    </div>`;
+}
+
+function renderEtfDetail() {
+  const e = state.data && state.data.etf;
+  if (!e) { showEmptyDetail(); return; }
+  $("detail").innerHTML = `<div class="inner">
+    <div class="d-head">
+      <div><div class="d-title">元大台灣50 <span class="code num">0050</span><span class="mkt">ETF</span></div>
+        <div class="muted" style="margin-top:6px;font-size:12px">還原 K 線（含配息、分割），近 60 日</div></div>
+      <div class="d-price"><div class="p num ${e.pct > 0 ? "up" : e.pct < 0 ? "down" : ""}">${fmt(e.close)}</div><div class="num">${pct(e.pct)}%</div></div>
+    </div>
+    <div class="ohlc num" id="ohlc">&nbsp;</div>
+    <div id="chart"></div>
+    <div class="links">
+      <a href="https://tw.stock.yahoo.com/quote/0050" target="_blank" rel="noopener">Yahoo 股市 ↗</a>
+      <a href="https://www.yuantaetfs.com/product/detail/0050/ratio" target="_blank" rel="noopener">元大投信 0050 ↗</a>
+    </div>
+  </div>`;
+  const colors = { ma20: "var(--warn)", ma60: "var(--info)", ma120: "var(--down)" };
+  drawChart(e.bars, e.levels.map((l) => ({ price: l.price, label: l.label, color: colors[l.key], full: true })));
+}
+
 function setView(v) {
   state.view = v;
   history.replaceState(null, "", v === "radar" ? location.pathname : `#${v}`);
@@ -882,8 +986,11 @@ function setView(v) {
   $("radarView").hidden = v !== "radar";
   $("picksView").hidden = v !== "picks";
   $("preView").hidden = v !== "pre";
+  $("etfView").hidden = v !== "etf";
+  if (v === "etf") { renderEtfDetail(); return; }
   const list = listFor(v);
-  if (list && list.length && !list.some((x) => x["代號"] === state.selected)) select(list[0]["代號"]);
+  // 從 0050 專區切回來時，右側要換回個股明細
+  if (list && list.length) select(list.some((x) => x["代號"] === state.selected) ? state.selected : list[0]["代號"]);
 }
 
 // ---------------------------------------------------------------- K 線圖（SVG）
@@ -916,6 +1023,11 @@ function drawChart(bars, lines = []) {
   // 箱型整理的上下緣（近 20 日）
   const boxX = x(Math.max(0, n - 21)) - cw / 2;
   lines.forEach((ln) => {
+    if (ln.full) {
+      s += `<line x1="0" x2="${W - PAD_R}" y1="${y(ln.price)}" y2="${y(ln.price)}" stroke="${ln.color}" stroke-dasharray="5 3" stroke-width="1.2"/>`;
+      s += `<text x="${W - PAD_R - 4}" y="${y(ln.price) - 4}" font-size="10" text-anchor="end" fill="${ln.color}">${ln.label} ${ln.price}</text>`;
+      return;
+    }
     s += `<line x1="${boxX}" x2="${W - PAD_R}" y1="${y(ln.price)}" y2="${y(ln.price)}" stroke="${ln.color}" stroke-width="1.2"/>`;
     s += `<text x="${boxX + 4}" y="${y(ln.price) + (ln.label === "箱底" ? 12 : -4)}" font-size="10" fill="${ln.color}">${ln.label} ${ln.price}</text>`;
   });
@@ -1027,7 +1139,7 @@ if (STATIC) {
   document.querySelector("footer").insertAdjacentHTML("afterbegin", "每個交易日收盤後自動更新。");
 }
 renderHead();
-if (["#picks", "#pre"].includes(location.hash)) setView(location.hash.slice(1));
+if (["#picks", "#pre", "#etf"].includes(location.hash)) setView(location.hash.slice(1));
 runScreen();
 </script>
 </body>

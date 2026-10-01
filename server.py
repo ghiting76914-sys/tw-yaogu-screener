@@ -14,6 +14,7 @@ import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+import etf
 import strategy
 import yaogu
 
@@ -55,7 +56,16 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             "picks": picks, "backtest": _backtests[bt_key][0],
             "pre": pre, "pre_backtest": _backtests[bt_key][1],
             "market": res["market"][-1], "insti_ready": res["insti"][-1] is not None,
-            "insti_excluded": excluded}
+            "insti_excluded": excluded, "etf": _etf_summary()}
+
+
+def _etf_summary():
+    """0050 專區資料；抓不到時不影響其他分頁。"""
+    try:
+        return etf.summary()
+    except Exception as e:
+        print(f"0050 資料讀取失敗：{e}")
+        return None
 
 
 def quote(code):

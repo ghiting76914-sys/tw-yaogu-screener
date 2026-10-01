@@ -39,7 +39,8 @@ def main():
     open(os.path.join(SITE_DIR, ".nojekyll"), "w").close()
 
     print(f"已產生 {SITE_DIR}：交易日 {data['trade_date']}，雷達 {len(data['results'])} 檔，"
-          f"明日候選 {len(data['picks'])} 檔，起漲前夕 {len(data['pre'])} 檔")
+          f"明日候選 {len(data['picks'])} 檔，起漲前夕 {len(data['pre'])} 檔，"
+          f"0050 {'已更新至 ' + data['etf']['date'] if data.get('etf') else '讀取失敗'}")
 
 
 if __name__ == "__main__":
