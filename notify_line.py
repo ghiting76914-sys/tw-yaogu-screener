@@ -83,8 +83,9 @@ def main():
         print(text)
         return
 
-    token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
-    user_id = os.environ.get("LINE_USER_ID")
+    # 去掉貼上時可能多出的空白與換行
+    token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "").strip()
+    user_id = os.environ.get("LINE_USER_ID", "").strip()
     if not token or not user_id:
         print("尚未設定 LINE_CHANNEL_ACCESS_TOKEN / LINE_USER_ID，略過 LINE 通知")
         return

@@ -47,6 +47,7 @@ jobs:
 
       # 未設定 LINE 金鑰時會自動略過；同一交易日只發送一次
       - name: 傳送明日強勢候選到 LINE
+        continue-on-error: true  # LINE 失敗不影響網站更新
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
