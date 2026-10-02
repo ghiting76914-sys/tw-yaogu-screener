@@ -33,7 +33,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
     end = dt.datetime.strptime(date_str, "%Y%m%d").date() if date_str else dt.date.today()
     args = types.SimpleNamespace(min_score=SERVER_MIN_SCORE, min_volume=min_volume,
                                  small_cap=small_cap, lookback=yaogu.LOOKBACK, live=live,
-                                 market_data=True)
+                                 market_data=True, streaks=True)
     with _lock:
         res = yaogu.screen(end, args, log=False)
         history, trade_date = res["history"], res["trade_date"]
@@ -43,7 +43,8 @@ def run_screen(date_str, min_volume, small_cap, live=True):
 
         excluded = []
         picks = strategy.tomorrow_picks(history, res["ref"], small_cap,
-                                        insti=res["insti"][-1], excluded=excluded)
+                                        insti=res["insti"][-1], excluded=excluded,
+                                        insti_hist=res["insti"])
         pre = strategy.pre_picks(history, res["ref"], small_cap)
         # 回測只用到昨天為止的資料，盤中即時資料更新不影響結果
         bt_key = (history[0][0], history[-2][0])

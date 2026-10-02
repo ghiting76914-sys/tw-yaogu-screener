@@ -70,7 +70,8 @@ def build_texts(data):
         lines = [
             f"📈 明日強勢候選｜{data['trade_date']}（{i}/{len(picks)}）", "",
             f"{p['名稱']} {p['代號']}（{p['市場']}）",
-            f"收盤 {p['收盤']:g}（{p['漲跌%']:+.2f}%）強度 {p['強度']}", "",
+            f"收盤 {p['收盤']:g}（{p['漲跌%']:+.2f}%）強度 {p['強度']}",
+            "今日新上榜" if p.get("連續上榜", 1) <= 1 else f"連續上榜 {p['連續上榜']} 天", "",
             "【操作】",
             f"・進場：{plan['entry']}",
             f"・停損：{plan['stop']}",
@@ -119,7 +120,9 @@ def stock_bubble(p, i, n, trade_date):
         "header": {
             "type": "box", "layout": "vertical", "backgroundColor": INK, "paddingAll": "16px", "spacing": "xs",
             "contents": [
-                text(f"明日強勢候選 · {trade_date[5:].replace('-', '/')} · {i}/{n}", size="xxs", color="#BDB8AE"),
+                text(f"明日強勢候選 · {trade_date[5:].replace('-', '/')} · {i}/{n} · "
+                     + ("今日新上榜" if p.get("連續上榜", 1) <= 1 else f"連續上榜 {p['連續上榜']} 天"),
+                     size="xxs", color="#BDB8AE"),
                 {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
                     text(p["名稱"], size="xl", weight="bold", color="#FFFFFF", flex=0),
                     text(f"{p['代號']} {p['市場']}", size="sm", color="#BDB8AE", flex=0),

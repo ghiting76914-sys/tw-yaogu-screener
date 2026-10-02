@@ -193,9 +193,21 @@ def insti_selling(insti, code):
     return bool(iv and iv[2] < 0)
 
 
-def tomorrow_picks(history, ref, small_cap=10, opt=DEFAULTS, insti=None, excluded=None):
+STREAK_MAX = 20  # 連續上榜最多往回算幾天
+
+
+def streak(s, t, ok, max_days=STREAK_MAX):
+    """從第 t 天往回數，連續符合 ok(第幾天) 的天數（含第 t 天）。"""
+    n = 0
+    while n < max_days and t - n >= 0 and ok(t - n):
+        n += 1
+    return n
+
+
+def tomorrow_picks(history, ref, small_cap=10, opt=DEFAULTS, insti=None, excluded=None, insti_hist=None):
     """insti：今天的三大法人買賣超（None 代表尚未公布，不排除）。
-    excluded：傳入 list 時，會放入因法人賣超而排除的股票名稱。"""
+    excluded：傳入 list 時，會放入因法人賣超而排除的股票名稱。
+    insti_hist：與 history 對齊的法人資料 list，用來計算過去每天是否也上榜。"""
     series = build_series(history)
     t = len(history) - 1
     picks = []
@@ -227,6 +239,8 @@ def tomorrow_picks(history, ref, small_cap=10, opt=DEFAULTS, insti=None, exclude
             "股本(億)": round(cap_e, 2) if cap_e is not None else None,
             "強度": rank_score(f, cap_e, small_cap),
             "理由": reasons, "風險": risks, "計畫": plan,
+            "連續上榜": streak(s, t, lambda d: (lambda g: bool(g) and passes(g, opt))(features(s, d))
+                               and not (insti_hist and insti_selling(insti_hist[d], code))),
         })
     picks.sort(key=lambda p: p["強度"], reverse=True)
     return picks
@@ -498,6 +512,7 @@ def pre_picks(history, ref, small_cap=10):
             "股本(億)": round(cap_e, 2) if cap_e is not None else None,
             "箱頂": f["box_high"], "箱底": f["box_low"],
             "強度": pre_strength(f), "理由": reasons, "風險": risks, "計畫": plan,
+            "連續上榜": streak(s, t, lambda d: (lambda g: bool(g) and pre_passes(g))(pre_features(s, d))),
         })
     out.sort(key=lambda p: p["強度"], reverse=True)
     return out

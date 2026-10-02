@@ -246,6 +246,10 @@ svg.chart { width: 100%; height: auto; display: block; }
 .pick:hover { border-color: var(--muted); }
 .pick.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .pick.paused { opacity: .6; }
+.streak { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 1px 9px;
+  background: var(--panel-2); color: var(--muted); white-space: nowrap; }
+.streak.new { background: var(--info-soft); color: var(--info); }
+.streak.long { background: var(--warn-soft); color: var(--warn); }
 .paused-tag { font-size: 12px; font-weight: 700; color: var(--down); background: var(--down-soft); border-radius: 999px; padding: 1px 9px; }
 .filter-note { margin: 10px 0 0; padding: 8px 12px; border-radius: 8px; font-size: 13px; background: var(--panel-2); }
 .filter-note.ok { border-left: 3px solid var(--up); }
@@ -444,6 +448,7 @@ const COLUMNS = [
   { key: "週轉率%", label: "週轉率%", opt: true, wide: true },
   { key: "股本(億)", label: "股本(億)" },
   { key: "分數", label: "分數" },
+  { key: "_streak", label: "連續上榜" },
   { key: "_flags", label: "", cls: "l", nosort: true },
 ];
 
@@ -473,6 +478,22 @@ function signalChips(text) {
     else if (/量|週轉/.test(s)) c = "blue";
     return `<span class="chip ${c}">${esc(s)}</span>`;
   }).join("");
+}
+
+// 連續上榜天數標籤：1 天＝今日新上榜；20 天是往回計算的上限
+function streakTag(n) {
+  if (!n) return "";
+  if (n === 1) return `<span class="streak new">今日新上榜</span>`;
+  return `<span class="streak ${n >= 5 ? "long" : ""}">連續上榜 ${n >= 20 ? "20+" : n} 天</span>`;
+}
+
+// 雷達：依目前的最低分數，從分數歷史往回數連續達標的天數
+function radarStreak(r, min) {
+  const h = r["分數歷史"];
+  if (!h) return null;
+  let n = 0;
+  for (let i = h.length - 1; i >= 0 && h[i] != null && h[i] >= min; i--) n++;
+  return n;
 }
 
 const isDisposal = (r) => r["訊號"].includes("處置中");
@@ -540,6 +561,7 @@ function filtered() {
   const q = $("q").value.trim().toLowerCase();
   const onlyLimit = $("onlyLimit").checked;
   const noDisp = $("noDisposal").checked;
+  state.data.results.forEach((r) => { r._streak = radarStreak(r, min); });
   let rows = state.data.results.filter((r) =>
     r["分數"] >= min &&
     (!state.market || r["市場"] === state.market) &&
@@ -577,6 +599,16 @@ function renderScoreDist() {
   $("scoreDist").innerHTML = [3, 4, 5, 6, 7, 8, 9, 10, 12].map((v) =>
     `<button type="button" data-v="${v}" class="${v === cur ? "on" : ""}">≥ ${v} 分：${base.filter((r) => r["分數"] >= v).length} 檔</button>`
   ).join("");
+}
+
+function detailStreak(r) {
+  const view = state.view;
+  if (view === "picks" || view === "pre") {
+    const p = (state.data[view] || []).find((x) => x["代號"] === r["代號"]);
+    if (p) return streakTag(p["連續上榜"]);
+  }
+  const n = radarStreak(r, +$("minScore").value);
+  return n ? `${streakTag(n)} <span class="muted" style="font-size:11px">分數 ≥ ${$("minScore").value}</span>` : "";
 }
 
 function breakdownTable(r) {
@@ -632,6 +664,7 @@ function render() {
       <td class="num col-opt col-wide">${fmt(r["週轉率%"])}</td>
       <td class="num">${fmt(r["股本(億)"])}</td>
       <td><span class="score num ${scoreCls(r["分數"])}">${r["分數"]}</span></td>
+      <td class="num">${r._streak == null ? "–" : r._streak === 1 ? '<span class="streak new">新</span>' : `${r._streak >= 20 ? "20+" : r._streak} 天`}</td>
       <td class="l"><span class="flags">${flags}</span></td>
     </tr>`;
   }).join("");
@@ -670,7 +703,8 @@ async function select(code) {
     <div class="d-head">
       <div>
         <div class="d-title">${esc(r["名稱"])} <span class="code num">${r["代號"]}</span><span class="mkt">${r["市場"]}</span></div>
-        <div style="margin-top:6px">分數 <span class="score num ${scoreCls(r["分數"])}">${r["分數"]}</span></div>
+        <div style="margin-top:6px">分數 <span class="score num ${scoreCls(r["分數"])}">${r["分數"]}</span>
+          ${detailStreak(r)}</div>
       </div>
       <div class="d-price" id="dPrice">
         <div class="p num ${cls}">${fmt(r["收盤"])}</div>
@@ -780,6 +814,7 @@ function renderPicks() {
       <div class="pick-head">
         <span class="rank num">#${i + 1}</span>
         <span><span class="name" style="font-size:17px">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span></span>
+        ${streakTag(p["連續上榜"])}
         <span class="strength">強度 <span class="bar"><i style="width:${p["強度"]}%"></i></span><b class="num" style="color:var(--text)">${p["強度"]}</b></span>
         <span class="px num"><b class="${p["漲跌%"] > 0 ? "up" : "down"}">${fmt(p["收盤"])}</b> ${pct(p["漲跌%"])}%</span>
       </div>
@@ -864,6 +899,7 @@ function renderPre() {
       <div class="pick-head">
         <span class="rank num">#${i + 1}</span>
         <span><span class="name" style="font-size:17px">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span></span>
+        ${streakTag(p["連續上榜"])}
         ${paused ? `<span class="paused-tag">大盤偏弱・暫停</span>` : ""}
         <span class="strength">型態完整度 <span class="bar"><i style="width:${p["強度"]}%"></i></span><b class="num" style="color:var(--text)">${p["強度"]}</b></span>
         <span class="px num"><b class="${p["漲跌%"] > 0 ? "up" : "down"}">${fmt(p["收盤"])}</b> ${pct(p["漲跌%"])}%</span>

@@ -504,6 +504,19 @@ def analyze(code, history, ref, args):
     }
 
 
+STREAK_DAYS = 20  # 連續上榜最多往回算幾天
+
+
+def score_history(code, history, ref, args, days=STREAK_DAYS):
+    """最近 days 個交易日（含今天）每天的分數，由舊到新；當天不符合成交量等條件為 None。
+    網頁依使用者設定的最低分數計算連續上榜天數。注意股、處置股用的是今天的名單。"""
+    out = []
+    for t in range(max(1, len(history) - days), len(history)):
+        r = analyze(code, history[:t + 1], ref, args)
+        out.append(r["分數"] if r else None)
+    return out
+
+
 # ---------------------------------------------------------------- 輸出
 
 def display_width(s):
@@ -565,6 +578,9 @@ def screen(end, args, log=True):
         if r and r["分數"] >= args.min_score:
             results.append(r)
     results.sort(key=lambda r: (r["分數"], r["量比"] or 0), reverse=True)
+    if getattr(args, "streaks", False):
+        for r in results:
+            r["分數歷史"] = score_history(r["代號"], history, ref, args)
     res = {"trade_date": trade_date, "results": results, "history": history, "ref": ref, "live": live}
 
     if getattr(args, "market_data", False):
