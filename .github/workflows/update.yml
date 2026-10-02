@@ -47,6 +47,20 @@ jobs:
           key: market-cache-${{ github.run_id }}
           restore-keys: market-cache-
 
+      # 雲端快取不足 2 年時，從 Release 下載初始資料；已有的檔案不覆蓋，之後每天只補當天
+      - name: 補齊歷史資料
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p data/cache
+          n=$(ls data/cache/twse_*.json 2>/dev/null | wc -l)
+          echo "快取中有 $n 個交易日的行情檔"
+          if [ "$n" -lt 500 ]; then
+            gh release download data-seed --repo "$GITHUB_REPOSITORY" -p market-cache.tar.gz -D /tmp
+            tar -xzf /tmp/market-cache.tar.gz --skip-old-files -C data/cache
+            echo "補齊後有 $(ls data/cache/twse_*.json | wc -l) 個交易日的行情檔"
+          fi
+
       - name: 篩選並產生網站
         run: python export_site.py
 

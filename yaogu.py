@@ -25,8 +25,8 @@ CACHE_DIR = os.path.join(BASE_DIR, "data", "cache")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh) tw-yaogu-screener"}
 
-# 抓取的交易日數：60 日新高、起漲前夕的 60 日整理期都需要 60 天，多出來的天數用於回測
-LOOKBACK = 121
+# 抓取的交易日數：60 日新高、起漲前夕的 60 日整理期需要 60 天，其餘用於回測（約 2 年）
+LOOKBACK = 520
 
 # 證交所對頻繁請求會暫時封鎖 IP，抓歷史資料時每次請求間隔幾秒
 REQUEST_INTERVAL = 3.0
