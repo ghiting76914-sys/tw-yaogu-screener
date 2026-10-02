@@ -684,7 +684,7 @@ function listFor(view) {
 }
 
 function findStock(code) {
-  const r = state.data.results.find((x) => x["代號"] === code);
+  const r = state.data.results.find((x) => x["代號"] === code) || (state.data.details || {})[code];
   if (r) return r;
   const p = (state.data.picks || []).concat(state.data.pre || []).find((x) => x["代號"] === code);
   return p && { ...p, "分數": "–", "訊號": "", "20日%": null, "週轉率%": null, "5日%": p["5日%"] ?? null };
@@ -865,7 +865,7 @@ function renderPre() {
       ? "回測勝過同期間隨便買，但期間短、樣本少，不代表未來會一樣。"
       : diff > 0
         ? `比同期間隨便買好 ${diff.toFixed(2)} 個百分點，但<b>本身${h.avg > 0 ? "報酬很小" : "仍是虧損"}，沒有穩定的獲利優勢</b>。請當作觀察名單。`
-        : "<b>回測沒有比隨便買更好</b>。這是教科書上的經典型態，但近期市場不買單，請當作觀察名單。";
+        : "<b>回測沒有比隨便買更好</b>。這是教科書上的經典型態，但這段期間市場不買單，請當作觀察名單。";
   }
   const m = d.market;
   const paused = m && m.up === false;

@@ -46,6 +46,18 @@ def run_screen(date_str, min_volume, small_cap, live=True):
                                         insti=res["insti"][-1], excluded=excluded,
                                         insti_hist=res["insti"])
         pre = strategy.pre_picks(history, res["ref"], small_cap)
+
+        # 明日候選、起漲前夕的股票不一定在雷達名單裡（分數或成交量未達門檻），
+        # 另外算出完整明細（分數、漲幅、週轉率等），讓右側明細不缺欄位
+        known = {r["代號"] for r in res["results"]}
+        detail_args = types.SimpleNamespace(**{**vars(args), "min_volume": 0})
+        details = {}
+        for p in picks + pre:
+            code = p["代號"]
+            if code not in known and code not in details:
+                row = yaogu.analyze(code, history, res["ref"], detail_args)
+                if row:
+                    details[code] = row
         # 回測只用到昨天為止的資料，盤中即時資料更新不影響結果
         bt_key = (history[0][0], history[-2][0])
         if bt_key not in _backtests:
@@ -57,7 +69,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             "picks": picks, "backtest": _backtests[bt_key][0],
             "pre": pre, "pre_backtest": _backtests[bt_key][1],
             "market": res["market"][-1], "insti_ready": res["insti"][-1] is not None,
-            "insti_excluded": excluded, "etf": _etf_summary()}
+            "insti_excluded": excluded, "details": details, "etf": _etf_summary()}
 
 
 def _etf_summary():
