@@ -1,24 +1,24 @@
 #!/bin/bash
-# GitHub 排程不可靠時的備案：由這台 Mac 在平日收盤後通知 GitHub 更新網站與 LINE。
-# 今天台灣時間 15:00 之後已經有成功或進行中的更新，就不重複觸發。
-# 由 ~/Library/LaunchAgents/com.ghiting.yaogu-trigger.plist 在平日 15:45、16:30 執行。
+# 最後一道保險：網站上的交易日還不是今天，就通知 GitHub 更新網站與 LINE。
+# 主要觸發來源是 cron-job.org（平日 15:50、16:40）與 GitHub 自己的排程；
+# 由 ~/Library/LaunchAgents/com.ghiting.yaogu-trigger.plist 在平日 16:10、17:00 執行。
 GH="$HOME/.local/bin/gh"
 REPO="ghiting76914-sys/tw-yaogu-screener"
+SITE="https://ghiting76914-sys.github.io/tw-yaogu-screener/data/latest.json"
 LOG="$HOME/tw-yaogu-screener/output/trigger.log"
 mkdir -p "$(dirname "$LOG")"
+today="$(date +%F)"
 
-since="$(date -u +%Y-%m-%d)T07:00:00Z"   # 台灣時間 15:00
-done_today=$("$GH" run list --repo "$REPO" --workflow update.yml --limit 20 \
-  --json createdAt,status,conclusion \
-  --jq "[.[] | select(.createdAt >= \"$since\" and (.conclusion == \"success\" or .status != \"completed\"))] | length" 2>>"$LOG")
+site_date=$(curl -s -m 30 "$SITE?t=$(date +%s)" | /usr/bin/python3 -c "import json,sys; print(json.load(sys.stdin)['trade_date'])" 2>/dev/null)
+running=$("$GH" run list --repo "$REPO" --workflow update.yml --limit 5 --json status \
+  --jq '[.[] | select(.status != "completed")] | length' 2>>"$LOG")
 
-if [ -z "$done_today" ]; then
-  echo "$(date '+%F %T') 無法查詢 GitHub（網路或登入問題）" >> "$LOG"
-  exit 1
-elif [ "$done_today" -gt 0 ]; then
-  echo "$(date '+%F %T') 今天已有更新，略過" >> "$LOG"
+if [ "$site_date" = "$today" ]; then
+  echo "$(date '+%F %T') 網站已是今天的資料，略過" >> "$LOG"
+elif [ "${running:-0}" -gt 0 ]; then
+  echo "$(date '+%F %T') 網站還是 ${site_date:-未知}，但已有更新在執行中，略過" >> "$LOG"
 else
   "$GH" workflow run update.yml --repo "$REPO" >> "$LOG" 2>&1 \
-    && echo "$(date '+%F %T') 已觸發更新" >> "$LOG" \
+    && echo "$(date '+%F %T') 網站還是 ${site_date:-未知}，已觸發更新" >> "$LOG" \
     || echo "$(date '+%F %T') 觸發失敗" >> "$LOG"
 fi

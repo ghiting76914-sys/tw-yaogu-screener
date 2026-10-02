@@ -95,9 +95,16 @@ python3 server.py
 2. 執行 `export_site.py`，把篩選結果、明日候選、回測與 K 線資料存成 `site/data/*.json`
 3. 發佈到 GitHub Pages
 
-GitHub 排程常延遲或被略過，所以另外由這台 Mac 的 launchd（`~/Library/LaunchAgents/com.ghiting.yaogu-trigger.plist`）
-在平日 15:45、16:30 執行 `scripts/trigger_update.sh`：今天還沒有成功的更新就觸發一次，紀錄在 `output/trigger.log`。
-Mac 睡眠時會在醒來後補跑。停用：`launchctl unload ~/Library/LaunchAgents/com.ghiting.yaogu-trigger.plist`
+GitHub 排程常延遲或被略過，所以有三道觸發，LINE 同一交易日只發送一次、重複執行也不會重複推播：
+
+1. **cron-job.org**（主要）：平日 15:50、16:50 以 POST 呼叫 GitHub API
+   `https://api.github.com/repos/ghiting76914-sys/tw-yaogu-screener/actions/workflows/update.yml/dispatches`，
+   標頭 `Authorization: Bearer <GitHub 金鑰>`、body `{"ref":"main"}`。金鑰為只限本專案、Actions 讀寫權限的
+   fine-grained token（`cron-job-yaogu`），**一年後到期需要重新產生並更新到 cron-job.org**
+2. **GitHub 自己的排程**（`update.yml` 的 schedule）
+3. **這台 Mac**（最後保險）：launchd（`~/Library/LaunchAgents/com.ghiting.yaogu-trigger.plist`）在平日 16:10、17:00
+   執行 `scripts/trigger_update.sh`，網站上的交易日還不是今天就觸發一次，紀錄在 `output/trigger.log`。
+   Mac 睡眠時會在醒來後補跑。停用：`launchctl unload ~/Library/LaunchAgents/com.ghiting.yaogu-trigger.plist`
 
 網路版是靜態網頁，沒有盤中即時報價，也不能自訂成交量、股本門檻（固定為 500 張、10 億）。
 想立即更新，可以到 GitHub 專案的 Actions 頁面，對「每日更新妖股雷達」按 Run workflow。
