@@ -7,7 +7,11 @@
 
 需要環境變數：
   LINE_CHANNEL_ACCESS_TOKEN  Messaging API 的 Channel access token（長期）
-  LINE_USER_ID               接收者的 User ID（U 開頭 33 碼）
+  LINE_SEND_TO               all（預設）：群發給所有加官方帳號為好友的人
+                             me：只傳給 LINE_USER_ID
+  LINE_USER_ID               LINE_SEND_TO=me 時的接收者 User ID（U 開頭 33 碼）
+
+額度：免費方案每月 200 則，群發時依人數計算（每天 1 次推播 × 好友人數）。
 
   python3 notify_line.py            # 讀取 site/data/latest.json 並發送
   python3 notify_line.py --dry-run  # 印出純文字版與卡片 JSON，不發送
@@ -231,16 +235,35 @@ def build_flex(data):
 # ---------------------------------------------------------------- 發送
 
 def push(token, user_id, messages):
-    """成功回傳 None，失敗回傳 (HTTP 狀態碼, 錯誤內容)。"""
-    body = json.dumps({"to": user_id, "messages": messages}).encode()
+    """user_id 為 None 時群發給所有好友。成功回傳 None，失敗回傳 (HTTP 狀態碼, 錯誤內容)。"""
+    if user_id:
+        url, payload = "https://api.line.me/v2/bot/message/push", {"to": user_id, "messages": messages}
+    else:
+        url, payload = "https://api.line.me/v2/bot/message/broadcast", {"messages": messages}
     req = urllib.request.Request(
-        "https://api.line.me/v2/bot/message/push", data=body, method="POST",
+        url, data=json.dumps(payload).encode(), method="POST",
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"})
     try:
         with urllib.request.urlopen(req, timeout=30):
             return None
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode("utf-8", "replace")
+
+
+def quota_report(token):
+    """本月已用的訊息額度（群發依人數計算）。查不到時回傳 None。"""
+    def get(path):
+        req = urllib.request.Request(f"https://api.line.me/v2/bot/message/{path}",
+                                     headers={"Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read())
+    try:
+        limit = get("quota")
+        used = get("quota/consumption")["totalUsage"]
+        cap = limit.get("value") if limit.get("type") == "limited" else None
+        return f"本月已用 {used} 則" + (f"／上限 {cap} 則（剩 {cap - used} 則）" if cap else "（無上限）")
+    except Exception as e:
+        return f"查詢額度失敗：{e}"
 
 
 # ---------------------------------------------------------------- 營收動能（每月換股日推播一次）
@@ -326,9 +349,10 @@ def main():
 
     # 去掉貼上時可能多出的空白與換行
     token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "").strip()
-    user_id = os.environ.get("LINE_USER_ID", "").strip()
-    if not token or not user_id:
-        print("尚未設定 LINE_CHANNEL_ACCESS_TOKEN / LINE_USER_ID，略過 LINE 通知")
+    send_to = os.environ.get("LINE_SEND_TO", "all").strip() or "all"
+    user_id = os.environ.get("LINE_USER_ID", "").strip() if send_to == "me" else None
+    if not token or (send_to == "me" and not user_id):
+        print("尚未設定 LINE_CHANNEL_ACCESS_TOKEN（或 LINE_SEND_TO=me 時的 LINE_USER_ID），略過 LINE 通知")
         return
 
     marker = os.path.join(CACHE_DIR, f"line_sent_{data['trade_date'].replace('-', '')}")
@@ -358,6 +382,7 @@ def main():
         if not args.revenue_test:  # 測試發送不記錄，換股日當天仍會正式發送
             open(rev_marker, "w").close()
         print(f"已傳送 {data['revenue']['rebalance_date']} 營收動能名單（{len(data['revenue']['picks'])} 檔）到 LINE")
+    print(f"發送對象：{'只有自己' if user_id else '所有好友（群發）'}；{quota_report(token)}")
 
 
 if __name__ == "__main__":

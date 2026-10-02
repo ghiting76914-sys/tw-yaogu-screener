@@ -75,6 +75,8 @@ jobs:
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+          # all：群發給所有好友（預設）；me：只傳給 LINE_USER_ID。可在 GitHub 的 Variables 設定 LINE_SEND_TO
+          LINE_SEND_TO: ${{ vars.LINE_SEND_TO || 'all' }}
         run: python notify_line.py ${{ inputs.force_line && '--force' || '' }} ${{ inputs.revenue_test && '--revenue-test' || '' }}
 
       - name: 儲存行情快取
