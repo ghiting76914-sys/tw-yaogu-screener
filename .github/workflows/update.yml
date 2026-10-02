@@ -16,6 +16,10 @@ on:
         description: "LINE 通知：同一交易日已發送過仍再發送"
         type: boolean
         default: false
+      revenue_test:
+        description: "LINE 通知：只發送本期營收動能名單（測試用）"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -54,8 +58,9 @@ jobs:
         run: |
           mkdir -p data/cache
           n=$(ls data/cache/twse_*.json 2>/dev/null | wc -l)
-          echo "快取中有 $n 個交易日的行情檔"
-          if [ "$n" -lt 500 ]; then
+          r=$(ls data/cache/rev_*.json 2>/dev/null | wc -l)
+          echo "快取中有 $n 個交易日的行情檔、$r 個月營收檔"
+          if [ "$n" -lt 500 ] || [ "$r" -lt 60 ]; then
             gh release download data-seed --repo "$GITHUB_REPOSITORY" -p market-cache.tar.gz -D /tmp
             tar -xzf /tmp/market-cache.tar.gz --skip-old-files -C data/cache
             echo "補齊後有 $(ls data/cache/twse_*.json | wc -l) 個交易日的行情檔"
@@ -70,7 +75,7 @@ jobs:
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
-        run: python notify_line.py ${{ inputs.force_line && '--force' || '' }}
+        run: python notify_line.py ${{ inputs.force_line && '--force' || '' }} ${{ inputs.revenue_test && '--revenue-test' || '' }}
 
       - name: 儲存行情快取
         if: always()

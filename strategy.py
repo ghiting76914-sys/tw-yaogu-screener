@@ -30,9 +30,17 @@ DEFAULTS = {
 }
 
 
+_series_cache = {}
+
+
 def build_series(history):
-    codes = [c for c in history[-1][1] if is_common_stock(c)]
-    return {c: [day.get(c) for _, day in history] for c in codes}
+    """{代號: 與 history 對齊的每日行情 list}。同一份 history 會被多個功能使用，算一次就記住。"""
+    key = (id(history), len(history), history[-1][0])
+    if key not in _series_cache:
+        _series_cache.clear()
+        codes = [c for c in history[-1][1] if is_common_stock(c)]
+        _series_cache[key] = {c: [day.get(c) for _, day in history] for c in codes}
+    return _series_cache[key]
 
 
 def features(s, t):
@@ -327,6 +335,13 @@ def backtest(history, opt=DEFAULTS, insti=None):
     signal_days, skipped = set(), 0
     for t in range(20, n - 1):
         for code, s in series.items():
+            r = s[t]
+            # 先用漲幅與成交量快速排除（passes 也要求這兩項），省下大部分的指標計算
+            if r is None or r["volume"] < opt["min_lots"] * 1000:
+                continue
+            p = pct_change(r)
+            if p is None or p < opt["min_pct"]:
+                continue
             f = features(s, t)
             if not f or not passes(f, opt):
                 continue
@@ -383,6 +398,7 @@ PRE = {
     "box_days": 20, "max_box": 15.0, "near_low": 0.97, "near_high": 1.01,
     "max_spread": 3.0, "vr_low": 1.2, "vr_high": 3.0, "max_pct": 4.0,
     "min_avg_lots": 300, "min_lots": 500,
+    "top": 10,           # 每天只列型態完整度最高的前幾檔
     "trigger_days": 5,   # 訊號後幾天內要突破
     "max_hold": 10,      # 突破進場後最多持有天數
 }
@@ -490,7 +506,8 @@ def pre_explain(f, cap_e, small_cap):
     return reasons, risks, plan
 
 
-def pre_picks(history, ref, small_cap=10):
+def pre_picks(history, ref, small_cap=10, total=None):
+    """回傳型態完整度最高的前 PRE["top"] 檔；total 傳入 list 時，放入符合條件的總檔數。"""
     series = build_series(history)
     t = len(history) - 1
     out = []
@@ -515,7 +532,9 @@ def pre_picks(history, ref, small_cap=10):
             "連續上榜": streak(s, t, lambda d: (lambda g: bool(g) and pre_passes(g))(pre_features(s, d))),
         })
     out.sort(key=lambda p: p["強度"], reverse=True)
-    return out
+    if total is not None:
+        total.append(len(out))
+    return out[:PRE["top"]]
 
 
 def pre_simulate(s, t, f, n):
@@ -587,16 +606,24 @@ def pre_backtest(history, market=None):
     for t in range(60, last_t + 1):
         if market and market[t] and market[t]["up"] is False:
             continue  # 大盤跌破 20 日均線：暫停進場
+        today = []
         for s in series.values():
             r = s[t]
             if r is None or r["volume"] < 500_000:
                 continue
-            ret = hold_return(s, t, n, hold)
-            if ret is not None:
-                base.append(ret - ROUND_TRIP_COST)
+            if t % 2 == 0:  # 對照組每 2 天取樣一次即可
+                ret = hold_return(s, t, n, hold)
+                if ret is not None:
+                    base.append(ret - ROUND_TRIP_COST)
+            p = pct_change(r)
+            if p is None or not 0 < p <= PRE["max_pct"]:
+                continue  # pre_passes 也要求今日上漲 0～4%，先快速排除
             f = pre_features(s, t)
-            if not f or not pre_passes(f):
-                continue
+            if f and pre_passes(f):
+                today.append((pre_strength(f), s, f))
+        # 與網頁一致：每天只做型態完整度最高的前 PRE["top"] 檔
+        today.sort(key=lambda x: -x[0])
+        for _, s, f in today[:PRE["top"]]:
             signals += 1
             res = pre_simulate(s, t, f, n)
             if res is None:

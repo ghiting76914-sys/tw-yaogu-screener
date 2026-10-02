@@ -15,6 +15,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 import etf
+import revenue
 import strategy
 import yaogu
 
@@ -45,14 +46,16 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         picks = strategy.tomorrow_picks(history, res["ref"], small_cap,
                                         insti=res["insti"][-1], excluded=excluded,
                                         insti_hist=res["insti"])
-        pre = strategy.pre_picks(history, res["ref"], small_cap)
+        pre_total = []
+        pre = strategy.pre_picks(history, res["ref"], small_cap, total=pre_total)
 
         # 明日候選、起漲前夕的股票不一定在雷達名單裡（分數或成交量未達門檻），
         # 另外算出完整明細（分數、漲幅、週轉率等），讓右側明細不缺欄位
+        rev = _revenue_summary(history)
         known = {r["代號"] for r in res["results"]}
         detail_args = types.SimpleNamespace(**{**vars(args), "min_volume": 0})
         details = {}
-        for p in picks + pre:
+        for p in picks + pre + (rev["picks"] if rev else []):
             code = p["代號"]
             if code not in known and code not in details:
                 row = yaogu.analyze(code, history, res["ref"], detail_args)
@@ -69,7 +72,17 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             "picks": picks, "backtest": _backtests[bt_key][0],
             "pre": pre, "pre_backtest": _backtests[bt_key][1],
             "market": res["market"][-1], "insti_ready": res["insti"][-1] is not None,
-            "insti_excluded": excluded, "details": details, "etf": _etf_summary()}
+            "insti_excluded": excluded, "details": details, "etf": _etf_summary(),
+            "pre_total": pre_total[0] if pre_total else len(pre), "revenue": rev}
+
+
+def _revenue_summary(history):
+    """營收動能分頁資料；抓不到時不影響其他分頁。"""
+    try:
+        return revenue.summary(history)
+    except Exception as e:
+        print(f"營收動能資料讀取失敗：{e}")
+        return None
 
 
 def _etf_summary():

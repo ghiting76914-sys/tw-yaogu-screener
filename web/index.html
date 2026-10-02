@@ -335,6 +335,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     <button class="on" data-v="radar">妖股雷達<span class="count num" id="cntRadar">–</span></button>
     <button data-v="picks">明日強勢候選<span class="count num" id="cntPicks">–</span></button>
     <button data-v="pre">起漲前夕<span class="count num" id="cntPre">–</span></button>
+    <button data-v="rev">營收動能<span class="count num" id="cntRev">–</span></button>
     <button data-v="etf">0050 專區<span class="count" id="etfTemp">–</span></button>
   </nav>
 
@@ -409,6 +410,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
       <div id="btBanner"></div>
       <div class="picks" id="picks"></div>
     </div>
+    <div id="revView" hidden></div>
     <div id="etfView" hidden></div>
     <div id="preView" hidden>
       <div id="preBanner"></div>
@@ -537,6 +539,7 @@ async function runScreen(silent = false) {
     renderPicks();
     renderPre();
     renderEtf();
+    renderRev();
     const first = listFor(state.view)[0];
     const keep = state.selected && findStock(state.selected);
     if (state.view === "etf") renderEtfDetail();  // 0050 專區的右側是 0050 K 線，不選個股
@@ -611,6 +614,17 @@ function detailStreak(r) {
   return n ? `${streakTag(n)} <span class="muted" style="font-size:11px">分數 ≥ ${$("minScore").value}</span>` : "";
 }
 
+// 營收動能分頁：右側明細顯示入選理由
+function revenueReasons(code) {
+  if (state.view !== "rev") return "";
+  const p = ((state.data.revenue || {}).picks || []).find((x) => x["代號"] === code);
+  if (!p) return "";
+  return `<div class="pick" style="padding:10px 14px;margin-top:12px;cursor:default">
+    <h4 style="margin:0 0 4px">營收動能第 ${p["排名"]} 名：為什麼入選</h4>
+    <ul class="why">${p["理由"].map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+  </div>`;
+}
+
 function breakdownTable(r) {
   const items = r["得分明細"];
   if (!items) return `<div class="d-signals">${signalChips(r["訊號"])}</div>`;
@@ -680,19 +694,21 @@ function listFor(view) {
   if (!state.data) return [];
   if (view === "picks") return state.data.picks || [];
   if (view === "pre") return state.data.pre || [];
+  if (view === "rev") return (state.data.revenue && state.data.revenue.picks) || [];
   return state.rows;
 }
 
 function findStock(code) {
   const r = state.data.results.find((x) => x["代號"] === code) || (state.data.details || {})[code];
   if (r) return r;
-  const p = (state.data.picks || []).concat(state.data.pre || []).find((x) => x["代號"] === code);
+  const p = (state.data.picks || []).concat(state.data.pre || [], (state.data.revenue || {}).picks || [])
+    .find((x) => x["代號"] === code);
   return p && { ...p, "分數": "–", "訊號": "", "20日%": null, "週轉率%": null, "5日%": p["5日%"] ?? null };
 }
 
 async function select(code) {
   state.selected = code;
-  document.querySelectorAll("#tbody tr").forEach((tr) => tr.classList.toggle("sel", tr.dataset.code === code));
+  document.querySelectorAll("#tbody tr, #revView tr[data-code]").forEach((tr) => tr.classList.toggle("sel", tr.dataset.code === code));
   document.querySelectorAll(".pick").forEach((el) => el.classList.toggle("sel", el.dataset.code === code));
   const r = findStock(code);
   if (!r) return;
@@ -711,6 +727,7 @@ async function select(code) {
         <div class="num">${pct(chg)}%</div>
       </div>
     </div>
+    ${revenueReasons(code)}
     ${breakdownTable(r)}
     <div class="ohlc num" id="ohlc">&nbsp;</div>
     <div id="chart"><div class="empty" style="padding:80px 0"><div class="spinner"></div></div></div>
@@ -874,7 +891,7 @@ function renderPre() {
     : `<p class="filter-note bad">大盤${m.live ? "（盤中即時）" : ""} ${fmt(m.close)} 點，<b>跌破 20 日均線（${fmt(m.ma20)}）：今日暫停進場</b>。2 年研究中，大盤在 20 日均線下時這套型態平均 -1.0%（訓練期）與 -2.3%（驗證期）。名單僅供觀察。</p>`;
   $("preBanner").innerHTML = `<div class="banner">
     <h3>這份名單怎麼來的</h3>
-    <div class="muted" style="font-size:13px">找出「近 20 日箱型整理、成交量萎縮、均線糾結，股價貼近箱頂，今天溫和放量收紅」但<b>還沒突破</b>的股票。要等股價漲過箱頂才算起漲；<b>大盤跌破 20 日均線時暫停</b>。</div>
+    <div class="muted" style="font-size:13px">找出「近 20 日箱型整理、成交量萎縮、均線糾結，股價貼近箱頂，今天溫和放量收紅」但<b>還沒突破</b>的股票。要等股價漲過箱頂才算起漲；<b>大盤跌破 20 日均線時暫停</b>。${d.pre_total > d.pre.length ? `今天共 ${d.pre_total} 檔符合，只列出型態完整度最高的前 ${d.pre.length} 檔（回測也是每天只做前 ${d.pre.length} 檔）。` : ""}</div>
     ${mktNote}
     ${h ? `<div class="bt">
       <div><div class="k">回測：突破才進場${bt.market_filter ? "（大盤多頭才做）" : ""}</div><div class="v num">${val(h.avg)}<small>平均報酬</small></div></div>
@@ -929,6 +946,63 @@ function renderPre() {
       </div>
     </article>`;
   }).join("");
+}
+
+// ---------------------------------------------------------------- 營收動能
+
+function renderRev() {
+  const r = state.data && state.data.revenue;
+  if (!r) {
+    $("revView").innerHTML = `<div class="card empty">月營收資料讀取失敗，請稍後重新整理。</div>`;
+    $("cntRev").textContent = "–";
+    return;
+  }
+  $("cntRev").textContent = r.picks.length;
+  const R = r.research, b = r.backtest;
+  const ym = `${r.rev_month.slice(0, 4)}/${r.rev_month.slice(4)}`;
+  const rows = r.picks.map((p) => `
+    <tr data-code="${p["代號"]}" class="${p["代號"] === state.selected ? "sel" : ""}">
+      <td class="num">${p["排名"]}</td>
+      <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span></td>
+      <td class="num">${pct(p["營收年增%"], 1)}%</td>
+      <td class="num col-opt">${pct(p["月增%"], 1)}%</td>
+      <td class="num col-opt">${fmt(p["成交值(億)"], 1)}</td>
+      <td class="num">${p["進場價"] == null ? "–" : fmt(p["進場價"])}</td>
+      <td class="num">${p["現價"] == null ? "–" : fmt(p["現價"])}</td>
+      <td class="num">${p["報酬%"] == null ? "–" : pct(p["報酬%"]) + "%"}</td>
+    </tr>`).join("");
+  const port = r.picks.filter((p) => p["報酬%"] != null);
+  const portAvg = port.length ? port.reduce((a, p) => a + p["報酬%"], 0) / port.length : null;
+  $("revView").innerHTML = `
+    <div class="banner">
+      <h3>這份名單怎麼來的</h3>
+      <div class="muted" style="font-size:13px">每月 11 日營收公布後的第一個交易日收盤選股：<b>營收創近 12 個月新高、營收年增超過 20%、股價站上季線</b>，日均量 500 張以上，再依 20 日成交值取前 20 檔。隔天開盤平均分配資金買進，持有 20 個交易日（約一個月），到下次換股日再換。</div>
+      <p class="filter-note ok">本期：<b>${r.rebalance_date}</b> 換股（使用 ${ym} 營收），${r.entry_date ? `${r.entry_date} 開盤進場，已持有 ${r.days_held}/${r.hold} 個交易日` : "明天開盤進場"}。共 ${r.qualified} 檔符合條件，依成交值取前 ${r.picks.length} 檔。${portAvg == null ? "" : `本期平均 ${pct(portAvg)}%。`}</p>
+      <div class="bt">
+        <div><div class="k">11 年研究（${R.period}）</div><div class="v num">${R.beat}/${R.months}<small>個月贏過大盤</small></div></div>
+        <div><div class="k">平均每月比大盤多</div><div class="v num">${pct(R.excess)}%<small>已扣成本</small></div></div>
+        <div><div class="k">個股勝率</div><div class="v num">${R.win}%<small>所有股票 ${R.base_win}%</small></div></div>
+      </div>
+      <p class="verdict">每一年都贏過大盤，包括空頭年：${esc(R.bear)}。但<b>大跌的月份一樣會跌</b>（最差一個月 ${R.worst}%），請控制投入的資金比例。</p>
+      ${b ? `<p>最近 2 年回測（網站資料，${b.months.length} 次換股）：${b.beat}/${b.months.length} 個月贏過大盤，平均每月 ${pct(b.avg)}%（大盤 ${pct(b.base_avg)}%），個股勝率 ${b.win}%，最差一個月 ${pct(b.worst)}%。已扣手續費與證交稅 ${b.cost}%、含除權息。</p>` : ""}
+    </div>
+    <div class="card" style="margin-top:12px">
+      <div class="table-wrap" style="max-height:none">
+        <table>
+          <thead><tr><th>#</th><th class="l">股票</th><th>營收年增</th><th class="col-opt">月增</th><th class="col-opt">成交值(億)</th><th>進場價</th><th>現價</th><th>換股後</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${r.picks.length ? "" : `<div class="empty">本期沒有符合條件的股票。</div>`}
+      </div>
+    </div>
+    ${b ? `<div class="etf-card">
+      <h3>最近 2 年逐月回測（前 20 檔 vs 所有股票）</h3>
+      <div class="bt-wrap"><table class="bt-table num">
+        <thead><tr><th>換股月份</th><th>前 20 檔</th><th>所有股票</th><th>差距</th><th>上漲檔數</th></tr></thead>
+        <tbody>${b.months.slice().reverse().map((m) => `<tr><td>${m.month}</td><td>${pct(m.port)}%</td><td>${pct(m.base)}%</td>
+          <td class="${m.port > m.base ? "up" : "down"}">${m.port > m.base ? "贏" : "輸"} ${Math.abs(m.port - m.base).toFixed(2)}</td><td>${m.wins}/${m.n}</td></tr>`).join("")}</tbody>
+      </table></div>
+    </div>` : ""}`;
 }
 
 // ---------------------------------------------------------------- 0050 專區
@@ -1023,6 +1097,7 @@ function setView(v) {
   $("picksView").hidden = v !== "picks";
   $("preView").hidden = v !== "pre";
   $("etfView").hidden = v !== "etf";
+  $("revView").hidden = v !== "rev";
   if (v === "etf") { renderEtfDetail(); return; }
   const list = listFor(v);
   // 從 0050 專區切回來時，右側要換回個股明細
@@ -1147,6 +1222,10 @@ $("tabs").addEventListener("click", (e) => {
   const b = e.target.closest("button");
   if (b) setView(b.dataset.v);
 });
+$("revView").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-code]");
+  if (tr) select(tr.dataset.code);
+});
 $("pre").addEventListener("click", (e) => {
   const el = e.target.closest(".pick");
   if (el) select(el.dataset.code);
@@ -1175,7 +1254,7 @@ if (STATIC) {
   document.querySelector("footer").insertAdjacentHTML("afterbegin", "每個交易日收盤後自動更新。");
 }
 renderHead();
-if (["#picks", "#pre", "#etf"].includes(location.hash)) setView(location.hash.slice(1));
+if (["#picks", "#pre", "#rev", "#etf"].includes(location.hash)) setView(location.hash.slice(1));
 runScreen();
 </script>
 </body>

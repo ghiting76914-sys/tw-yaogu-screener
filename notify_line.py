@@ -243,20 +243,85 @@ def push(token, user_id, messages):
         return e.code, e.read().decode("utf-8", "replace")
 
 
+# ---------------------------------------------------------------- 營收動能（每月換股日推播一次）
+
+def revenue_due(data):
+    """今天是營收動能換股日，且有名單。"""
+    r = data.get("revenue")
+    return bool(r and r.get("picks") and r.get("rebalance_date") == data["trade_date"])
+
+
+def build_revenue_flex(data):
+    r = data["revenue"]
+    ym = f"{r['rev_month'][:4]}/{r['rev_month'][4:]}"
+    rows = []
+    for p in r["picks"]:
+        rows.append({"type": "box", "layout": "horizontal", "spacing": "sm", "contents": [
+            text(f"{p['排名']}", size="xs", color=MUTED, flex=1),
+            text(f"{p['名稱']} {p['代號']}", size="sm", color=INK, flex=6, wrap=False),
+            text(f"年增 {p['營收年增%']:+.0f}%", size="xs", color=UP, flex=4, align="end"),
+            text(f"{p['選股日收盤']:g}", size="xs", color=MUTED, flex=3, align="end"),
+        ]})
+    R = r["research"]
+    return {
+        "type": "flex",
+        "altText": f"📊 營收動能 {r['rebalance_date']} 換股：" + "、".join(p["名稱"] for p in r["picks"][:5]) + "…",
+        "contents": {
+            "type": "bubble", "size": "giga",
+            "header": {"type": "box", "layout": "vertical", "backgroundColor": INK, "paddingAll": "16px", "spacing": "xs",
+                       "contents": [
+                           text(f"營收動能 · {r['rebalance_date']} 換股", size="xxs", color="#BDB8AE"),
+                           text(f"本月名單（{ym} 營收）", size="lg", weight="bold", color="#FFFFFF"),
+                           text(f"{r['qualified']} 檔符合，依成交值取前 {len(r['picks'])} 檔", size="xs", color="#FDBA74"),
+                       ]},
+            "body": {"type": "box", "layout": "vertical", "spacing": "sm", "paddingAll": "16px", "contents": [
+                text("營收創 12 個月新高、年增 > 20%、股價站上季線。明天開盤平均分配資金買進，"
+                     "持有約一個月（20 個交易日）到下次換股日。", size="xs", color=MUTED, wrap=True),
+                {"type": "separator"},
+                {"type": "box", "layout": "horizontal", "contents": [
+                    text("#", size="xxs", color=MUTED, flex=1), text("股票", size="xxs", color=MUTED, flex=6),
+                    text("營收年增", size="xxs", color=MUTED, flex=4, align="end"),
+                    text("今日收盤", size="xxs", color=MUTED, flex=3, align="end")]},
+                *rows,
+                {"type": "separator"},
+                text(f"📊 11 年研究：{R['beat']}/{R['months']} 個月贏過大盤，平均每月多 {R['excess']:+.2f}%；"
+                     f"大跌月一樣會跌（最差 {R['worst']}%），請控制資金比例。", size="xxs", color=MUTED, wrap=True),
+            ]},
+            "footer": {"type": "box", "layout": "vertical", "paddingAll": "12px", "contents": [
+                {"type": "button", "style": "primary", "color": ACCENT, "height": "sm",
+                 "action": {"type": "uri", "label": "看完整名單與理由", "uri": f"{SITE_URL}#rev"}}]},
+        },
+    }
+
+
+def build_revenue_text(data):
+    r = data["revenue"]
+    lines = [f"📊 營收動能｜{r['rebalance_date']} 換股（{r['rev_month'][:4]}/{r['rev_month'][4:]} 營收）",
+             "營收創 12 個月新高、年增 > 20%、站上季線，依成交值前 20。明天開盤平均買進、持有約一個月。", ""]
+    lines += [f"{p['排名']}. {p['名稱']} {p['代號']}  年增 {p['營收年增%']:+.0f}%  收 {p['選股日收盤']:g}" for p in r["picks"]]
+    lines += ["", f"完整名單：{SITE_URL}#rev"]
+    return "\n".join(lines)
+
+
 def main():
-    p = argparse.ArgumentParser(description="把明日強勢候選傳到 LINE")
+    p = argparse.ArgumentParser(description="把明日強勢候選（與每月營收動能名單）傳到 LINE")
     p.add_argument("--dry-run", action="store_true", help="印出內容，不發送")
     p.add_argument("--force", action="store_true", help="已發送過仍再發送")
+    p.add_argument("--revenue-test", action="store_true", help="只發送本期營收動能名單（測試用，不論是否為換股日）")
     args = p.parse_args()
 
     with open(LATEST, encoding="utf-8") as fh:
         data = json.load(fh)
     texts = build_texts(data)
     flex = build_flex(data)
+    rev_due = revenue_due(data) or (args.revenue_test and bool((data.get("revenue") or {}).get("picks")))
     if args.dry_run:
         print("\n\n========== 下一個對話框 ==========\n\n".join(texts))
         print("\n\n========== Flex JSON ==========\n")
         print(json.dumps(flex, ensure_ascii=False, indent=1))
+        if data.get("revenue"):
+            print("\n\n========== 營收動能（換股日才會發送）==========\n")
+            print(build_revenue_text(data))
         return
 
     # 去掉貼上時可能多出的空白與換行
@@ -267,21 +332,31 @@ def main():
         return
 
     marker = os.path.join(CACHE_DIR, f"line_sent_{data['trade_date'].replace('-', '')}")
-    if os.path.exists(marker) and not args.force:
+    rev_marker = os.path.join(CACHE_DIR, f"line_rev_sent_{data['trade_date'].replace('-', '')}")
+    send_picks = not args.revenue_test and (args.force or not os.path.exists(marker))
+    send_rev = rev_due and (args.force or args.revenue_test or not os.path.exists(rev_marker))
+    if not send_picks and not send_rev:
         print(f"{data['trade_date']} 已發送過，略過")
         return
 
-    err = push(token, user_id, [flex])
+    # 同一次推播最多 5 則訊息，只算 1 則額度
+    messages = ([flex] if send_picks else []) + ([build_revenue_flex(data)] if send_rev else [])
+    err = push(token, user_id, messages)
     if err and err[0] == 400:
         # 卡片格式被拒絕時改傳純文字，確保一定收得到
         print(f"Flex 卡片被拒絕（{err[1]}），改傳純文字")
-        err = push(token, user_id, [{"type": "text", "text": t[:5000]} for t in texts[:5]])
+        fallback = (texts[:4] if send_picks else []) + ([build_revenue_text(data)] if send_rev else [])
+        err = push(token, user_id, [{"type": "text", "text": t[:5000]} for t in fallback])
     if err:
         sys.exit(f"LINE 發送失敗：HTTP {err[0]} {err[1]}")
 
     os.makedirs(CACHE_DIR, exist_ok=True)
-    open(marker, "w").close()
-    print(f"已傳送 {data['trade_date']} 明日強勢候選（{len(data['picks'])} 檔）到 LINE")
+    if send_picks:
+        open(marker, "w").close()
+        print(f"已傳送 {data['trade_date']} 明日強勢候選（{len(data['picks'])} 檔）到 LINE")
+    if send_rev and not args.revenue_test:
+        open(rev_marker, "w").close()
+        print(f"已傳送 {data['revenue']['rebalance_date']} 營收動能名單（{len(data['revenue']['picks'])} 檔）到 LINE")
 
 
 if __name__ == "__main__":
