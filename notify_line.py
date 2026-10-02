@@ -354,8 +354,9 @@ def main():
     if send_picks:
         open(marker, "w").close()
         print(f"已傳送 {data['trade_date']} 明日強勢候選（{len(data['picks'])} 檔）到 LINE")
-    if send_rev and not args.revenue_test:
-        open(rev_marker, "w").close()
+    if send_rev:
+        if not args.revenue_test:  # 測試發送不記錄，換股日當天仍會正式發送
+            open(rev_marker, "w").close()
         print(f"已傳送 {data['revenue']['rebalance_date']} 營收動能名單（{len(data['revenue']['picks'])} 檔）到 LINE")
 
 
