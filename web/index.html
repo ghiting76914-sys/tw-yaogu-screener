@@ -532,7 +532,11 @@ async function runScreen(silent = false) {
         ? `<span class="live done">今日收盤（即時行情 ${json.live.time}）</span>`
         : `<span class="live pulse">盤中即時 ${json.live.time}</span>`;
     }
-    if (STATIC) badge = `<span class="live done">更新於 ${esc(json.generated_at)}</span>`;
+    if (STATIC) {
+      badge = json.live && !json.live.final
+        ? `<span class="live pulse">盤中預覽 ${esc(json.live.time.slice(0, 5))}（尚未收盤）</span>`
+        : `<span class="live done">更新於 ${esc(json.generated_at)}</span>`;
+    }
     $("status").innerHTML = `${badge} 交易日 <b class="num">${json.trade_date}</b> · 掃描 <span class="num">${json.scanned}</span> 檔`;
     $("tableMsg").innerHTML = "";
     render();
@@ -802,7 +806,7 @@ function renderPicks() {
       : "這套規則回測<b>沒有穩定的獲利優勢</b>，勝率不到一半，請當作觀察名單，不要當成保證獲利的買進訊號。";
   }
   const liveNote = d.live && !d.live.final
-    ? `<p><b class="up">目前是盤中資料，名單會隨股價變動，建議 13:30 收盤後再看。</b></p>` : "";
+    ? `<p><b class="up">目前是盤中預覽（${esc(d.live.time.slice(0, 5))}）：成交量已換算成全天預估、尚未排除法人賣超，名單會隨股價變動，正式名單以收盤後為準。</b></p>` : "";
   $("btBanner").innerHTML = `<div class="banner">
     <h3>這份名單怎麼來的</h3>
     <div class="muted" style="font-size:13px">今天收盤後，找出「放量突破 60 日高點、收在最高價附近、均線向上、但 5 日漲幅還不到 20%」的股票，並<b>排除三大法人賣超</b>的股票，作為明天的觀察對象。</div>
@@ -899,6 +903,7 @@ function renderPre() {
       <div><div class="k">對照：${bt.market_filter ? "大盤多頭日" : "同期間"}隨便買、抱 10 天</div><div class="v num">${val(b && b.avg)}<small>勝率 ${b ? b.win : "–"}%</small></div></div>
     </div>` : ""}
     <p class="verdict">${verdict}</p>
+    ${d.live && !d.live.final ? `<p><b class="up">目前是盤中預覽（${esc(d.live.time.slice(0, 5))}），成交量已換算成全天預估，名單會隨股價變動，正式名單以收盤後為準。</b></p>` : ""}
     ${h ? `<p>回測期間 ${bt.from} ～ ${bt.to}，共 ${bt.signals} 個訊號，其中 ${bt.no_break} 個在 5 天內沒有突破、不進場。規則：${bt.market_filter ? "大盤站上 20 日均線的日子才做；" : ""}漲過箱頂才買；跌破停損出場；到目標價出場；最多持有 10 天。已扣手續費與證交稅 ${bt.cost}%。</p>` : ""}
     <p class="research">📚 2 年研究（2024/08～2026/10，前 1.5 年找條件、最後半年驗證，共 2,611 筆交易）：經典起漲型態本身跟同期間隨便買差不多（大盤多頭時：訓練期 -0.2% 對 +0.0%、驗證期 +1.0% 對 +0.7%）。唯一在兩段期間都成立的，是「大盤跌破 20 日均線時明顯較差」，所以大盤弱時暫停。</p>
   </div>`;

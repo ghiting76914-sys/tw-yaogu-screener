@@ -9,7 +9,12 @@ LOG="$HOME/tw-yaogu-screener/output/trigger.log"
 mkdir -p "$(dirname "$LOG")"
 today="$(date +%F)"
 
-site_date=$(curl -s -m 30 "$SITE?t=$(date +%s)" | /usr/bin/python3 -c "import json,sys; print(json.load(sys.stdin)['trade_date'])" 2>/dev/null)
+# 網站上的交易日；中午的盤中預覽不算（live 尚未收盤時回傳 preview）
+site_date=$(curl -s -m 30 "$SITE?t=$(date +%s)" | /usr/bin/python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+live = d.get('live')
+print('preview' if live and not live.get('final') else d['trade_date'])" 2>/dev/null)
 running=$("$GH" run list --repo "$REPO" --workflow update.yml --limit 5 --json status \
   --jq '[.[] | select(.status != "completed")] | length' 2>>"$LOG")
 

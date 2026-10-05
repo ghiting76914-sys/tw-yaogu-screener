@@ -33,6 +33,10 @@ CACHE_DIR = os.path.join(BASE_DIR, "data", "cache")
 SITE_URL = os.environ.get("SITE_URL", "https://ghiting76914-sys.github.io/tw-yaogu-screener/")
 MAX_PICKS = 5
 
+# 卡片標題；盤中預覽時由 main() 改成「盤中預覽 HH:MM」
+TITLE, ICON = "明日強勢候選", "📈"
+PREVIEW_NOTE = "盤中預覽：成交量已換算成全天預估、尚未排除法人賣超，名單會隨收盤變動；正式名單收盤後推播。"
+
 UP = "#D1242F"      # 台股紅漲
 DOWN = "#1A7F37"    # 綠跌
 ACCENT = "#C2410C"
@@ -61,20 +65,22 @@ def build_texts(data):
         footer.append(f"另有 {len(data['picks']) - MAX_PICKS} 檔，請見網頁。")
     if backtest_line(data):
         footer.append("📊 " + backtest_line(data))
+    if TITLE != "明日強勢候選":
+        footer.append("⏰ " + PREVIEW_NOTE)
     footer += ["⚠️ 規則選股的觀察名單，非投資建議，請自行控管風險。",
                f"完整內容與 K 線：{SITE_URL}#picks"]
 
     if not picks:
-        return ["\n".join([f"📈 明日強勢候選｜{data['trade_date']}", "",
+        return ["\n".join([f"{ICON} {TITLE}｜{data['trade_date']}", "",
                            "今天沒有符合條件的股票。", "條件刻意設得嚴格，沒有好機會時寧可空手。", "",
                            *footer])]
     texts = []
     for i, p in enumerate(picks, 1):
         plan = p["計畫"]
         lines = [
-            f"📈 明日強勢候選｜{data['trade_date']}（{i}/{len(picks)}）", "",
+            f"{ICON} {TITLE}｜{data['trade_date']}（{i}/{len(picks)}）", "",
             f"{p['名稱']} {p['代號']}（{p['市場']}）",
-            f"收盤 {p['收盤']:g}（{p['漲跌%']:+.2f}%）強度 {p['強度']}",
+            f"{'收盤' if TITLE == '明日強勢候選' else '現價'} {p['收盤']:g}（{p['漲跌%']:+.2f}%）強度 {p['強度']}",
             "今日新上榜" if p.get("連續上榜", 1) <= 1 else f"連續上榜 {p['連續上榜']} 天", "",
             "【操作】",
             f"・進場：{plan['entry']}",
@@ -124,7 +130,7 @@ def stock_bubble(p, i, n, trade_date):
         "header": {
             "type": "box", "layout": "vertical", "backgroundColor": INK, "paddingAll": "16px", "spacing": "xs",
             "contents": [
-                text(f"明日強勢候選 · {trade_date[5:].replace('-', '/')} · {i}/{n} · "
+                text(f"{TITLE} · {trade_date[5:].replace('-', '/')} · {i}/{n} · "
                      + ("今日新上榜" if p.get("連續上榜", 1) <= 1 else f"連續上榜 {p['連續上榜']} 天"),
                      size="xxs", color="#BDB8AE"),
                 {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
@@ -201,6 +207,8 @@ def summary_bubble(data):
     more = len(data["picks"]) - MAX_PICKS
     if more > 0:
         contents.append(text(f"另有 {more} 檔候選，請見網頁。", size="xs", color=ACCENT, wrap=True))
+    if TITLE != "明日強勢候選":
+        contents.append(text("⏰ " + PREVIEW_NOTE, size="xs", color=ACCENT, wrap=True))
     contents.append(text("⚠️ 規則選股的觀察名單，非投資建議，請自行控管風險。", size="xxs", color=MUTED, wrap=True))
     return {
         "type": "bubble", "size": "mega",
@@ -218,17 +226,17 @@ def build_flex(data):
     if not picks:
         bubble = summary_bubble(data)
         bubble["body"]["contents"][:0] = [
-            text(f"明日強勢候選 · {data['trade_date']}", size="xs", color=MUTED),
+            text(f"{TITLE} · {data['trade_date']}", size="xs", color=MUTED),
             text("今天沒有符合條件的股票", size="lg", weight="bold", color=INK, wrap=True),
             text("條件刻意設得嚴格，沒有好機會時寧可空手。", size="xs", color=MUTED, wrap=True),
             {"type": "separator"},
         ]
-        return {"type": "flex", "altText": f"明日強勢候選 {data['trade_date']}：今天沒有符合條件的股票",
+        return {"type": "flex", "altText": f"{TITLE} {data['trade_date']}：目前沒有符合條件的股票",
                 "contents": bubble}
     names = "、".join(p["名稱"] for p in picks)
     bubbles = [stock_bubble(p, i, len(picks), data["trade_date"]) for i, p in enumerate(picks, 1)]
     bubbles.append(summary_bubble(data))
-    return {"type": "flex", "altText": f"📈 明日強勢候選 {data['trade_date']}：{names}"[:400],
+    return {"type": "flex", "altText": f"{ICON} {TITLE} {data['trade_date']}：{names}"[:400],
             "contents": {"type": "carousel", "contents": bubbles}}
 
 
@@ -335,9 +343,14 @@ def main():
 
     with open(LATEST, encoding="utf-8") as fh:
         data = json.load(fh)
+    global TITLE, ICON
+    live = data.get("live")
+    preview = bool(live and not live.get("final"))
+    if preview:
+        TITLE, ICON = f"盤中預覽 {live['time'][:5]}", "⏰"
     texts = build_texts(data)
     flex = build_flex(data)
-    rev_due = revenue_due(data) or (args.revenue_test and bool((data.get("revenue") or {}).get("picks")))
+    rev_due = not preview and (revenue_due(data) or (args.revenue_test and bool((data.get("revenue") or {}).get("picks"))))
     if args.dry_run:
         print("\n\n========== 下一個對話框 ==========\n\n".join(texts))
         print("\n\n========== Flex JSON ==========\n")
@@ -355,7 +368,8 @@ def main():
         print("尚未設定 LINE_CHANNEL_ACCESS_TOKEN（或 LINE_SEND_TO=me 時的 LINE_USER_ID），略過 LINE 通知")
         return
 
-    marker = os.path.join(CACHE_DIR, f"line_sent_{data['trade_date'].replace('-', '')}")
+    # 盤中預覽與收盤後的正式名單分開記錄，各自一天只發一次
+    marker = os.path.join(CACHE_DIR, f"line_{'preview' if preview else 'sent'}_{data['trade_date'].replace('-', '')}")
     rev_marker = os.path.join(CACHE_DIR, f"line_rev_sent_{data['trade_date'].replace('-', '')}")
     send_picks = not args.revenue_test and (args.force or not os.path.exists(marker))
     send_rev = rev_due and (args.force or args.revenue_test or not os.path.exists(rev_marker))
@@ -377,7 +391,7 @@ def main():
     os.makedirs(CACHE_DIR, exist_ok=True)
     if send_picks:
         open(marker, "w").close()
-        print(f"已傳送 {data['trade_date']} 明日強勢候選（{len(data['picks'])} 檔）到 LINE")
+        print(f"已傳送 {data['trade_date']} {TITLE}（{len(data['picks'])} 檔）到 LINE")
     if send_rev:
         if not args.revenue_test:  # 測試發送不記錄，換股日當天仍會正式發送
             open(rev_marker, "w").close()

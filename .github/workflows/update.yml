@@ -4,7 +4,9 @@ on:
   schedule:
     # GitHub 用 UTC 時間。GitHub 排程忙碌時可能延遲或被略過，所以安排多次；
     # 網站更新可重複執行，LINE 同一交易日只發送一次。
-    # 台灣時間 15:40、16:20、17:10、18:30、20:15
+    # 台灣時間 12:00（盤中預覽）
+    - cron: "0 4 * * 1-5"
+    # 台灣時間 15:40、16:20、17:10、18:30、20:15（收盤後正式版）
     - cron: "40 7 * * 1-5"
     - cron: "20 8 * * 1-5"
     - cron: "10 9 * * 1-5"
@@ -18,6 +20,14 @@ on:
         default: false
       revenue_test:
         description: "LINE 通知：只發送本期營收動能名單（測試用）"
+        type: boolean
+        default: false
+      preview:
+        description: "盤中預覽：用證交所即時行情當作今天（中午執行）"
+        type: boolean
+        default: false
+      skip_line:
+        description: "不發送 LINE（測試網站更新用）"
         type: boolean
         default: false
 
@@ -67,10 +77,12 @@ jobs:
           fi
 
       - name: 篩選並產生網站
-        run: python export_site.py
+        # 盤中預覽：手動勾選，或 12:00 的排程；若官方收盤資料已公布，仍會使用官方資料
+        run: python export_site.py ${{ (inputs.preview || github.event.schedule == '0 4 * * 1-5') && '--preview' || '' }}
 
       # 未設定 LINE 金鑰時會自動略過；同一交易日只發送一次
       - name: 傳送明日強勢候選到 LINE
+        if: ${{ !inputs.skip_line }}
         continue-on-error: true  # LINE 失敗不影響網站更新
         env:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}

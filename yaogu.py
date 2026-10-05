@@ -243,8 +243,18 @@ def live_snapshot(prev_day, today):
     pairs = [(c, r["market"]) for c, r in prev_day.items() if is_common_stock(c)]
     rows = {c: r for c, r in fetch_mis(pairs).items() if r["date"] == ymd}
     now = dt.datetime.now()
+    final = now.time() >= dt.time(13, 35)
+    # 盤中：成交量只累積到現在，換算成全天預估量（依已經過的交易時間比例），
+    # 量比、週轉率等條件才能和過去的全天成交量比較；原始量保留在 volume_raw
+    elapsed = (now - now.replace(hour=9, minute=0, second=0, microsecond=0)).total_seconds() / 60
+    scale = 1.0 if final else 270 / min(max(elapsed, 15), 270)
+    if scale > 1:
+        for r in rows.values():
+            r["volume_raw"] = r["volume"]
+            r["volume"] = r["volume"] * scale
+            r["amount"] = r["amount"] * scale
     snap = {"fetched": time.time(), "time": now.strftime("%H:%M:%S"),
-            "final": now.time() >= dt.time(13, 35), "rows": rows}
+            "final": final, "volume_scale": round(scale, 2), "rows": rows}
     os.makedirs(CACHE_DIR, exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(snap, fh, ensure_ascii=False)
@@ -564,7 +574,7 @@ def screen(end, args, log=True):
         snap = live_snapshot(history[-1][1], today)
         if snap["rows"]:
             history = history[1:] + [(today, snap["rows"])]
-            live = {"time": snap["time"], "final": snap["final"]}
+            live = {"time": snap["time"], "final": snap["final"], "volume_scale": snap.get("volume_scale", 1.0)}
     trade_date = history[-1][0]
     if log:
         print("讀取股本、注意股、處置股…", file=sys.stderr)
