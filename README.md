@@ -106,6 +106,12 @@ GitHub 排程常延遲或被略過，所以有三道觸發，LINE 同一交易�
    執行 `scripts/trigger_update.sh`，網站上的交易日還不是今天就觸發一次，紀錄在 `output/trigger.log`。
    Mac 睡眠時會在醒來後補跑。停用：`launchctl unload ~/Library/LaunchAgents/com.ghiting.yaogu-trigger.plist`
 
+**中午 12:00 盤中預覽**：cron-job.org 另一個工作在平日 12:00 以同樣方式呼叫 GitHub API，
+body 為 `{"ref":"main","inputs":{"preview":"true"}}`（GitHub 排程也有 12:00 的備援）。
+`export_site.py --preview` 改用證交所即時行情當作今天，成交量依已過的交易時間換算成全天預估，
+網站標示「盤中預覽」，LINE 推播「⏰ 盤中預覽」。三大法人資料尚未公布、不排除法人賣超；
+名單會隨收盤變動，回測只適用收盤後的正式名單。盤中預覽與正式名單的 LINE 推播分開記錄、各一天一次。
+
 網路版是靜態網頁，沒有盤中即時報價，也不能自訂成交量、股本門檻（固定為 500 張、10 億）。
 想立即更新，可以到 GitHub 專案的 Actions 頁面，對「每日更新妖股雷達」按 Run workflow。
 
