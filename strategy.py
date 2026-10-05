@@ -637,3 +637,112 @@ def pre_backtest(history, market=None):
         "plan": _stats(rs), "baseline": _stats(base), "cost": ROUND_TRIP_COST,
         "market_filter": bool(market),
     }
+
+
+# ================================================================ 隔日沖
+"""隔日沖：盤中漲到 +7% 以上、股價接近或突破 60 日高點的股票，收盤前買進、隔天開盤賣出。
+
+11 年研究（research/overnight.py，2015～2026）：「漲到 +7% 就用 +7% 價格買、接近或突破 60 日高、
+隔天開盤賣」訓練期勝率 49.9%、平均 +0.17%，驗證期勝率 50.7%、平均 +0.26%（已扣成本 0.585%）。
+收盤鎖住漲停的股票隔天開盤平均 +1.6～2.0%（勝率約 70%），但收盤前通常買不到；
+漲停被打開的股票隔天開盤平均 -0.9%。抱到隔天收盤的結果明顯較差。
+"""
+
+OVERNIGHT = {"min_pct": 7.0, "near_high": 0.98, "min_lots": 1000, "min_price": 10, "top": 10}
+OVERNIGHT_RESEARCH = {
+    "period": "2015/04～2026/10", "train": {"win": 49.9, "avg": 0.17}, "test": {"win": 50.7, "avg": 0.26},
+    "locked": "收盤鎖住漲停：隔天開盤平均 +1.6～2.0%、勝率約 70%（但收盤前通常買不到）",
+    "opened": "漲停被打開：隔天開盤平均 -0.9%、勝率約 30%",
+}
+
+
+def _overnight_check(s, t):
+    """第 t 天是否符合隔日沖條件；符合回傳特徵 dict。"""
+    r = s[t]
+    if r is None or None in (r["close"], r["open"], r["high"], r["change"]):
+        return None
+    prev = r["close"] - r["change"]
+    if prev <= 0 or r["close"] < OVERNIGHT["min_price"] or r["volume"] < OVERNIGHT["min_lots"] * 1000:
+        return None
+    pct = (r["close"] / prev - 1) * 100
+    open_pct = (r["open"] / prev - 1) * 100
+    if pct < OVERNIGHT["min_pct"] or open_pct >= OVERNIGHT["min_pct"]:
+        return None  # 要「開盤後才漲上 +7%」，開盤就在 +7% 以上的買不到研究中的價格
+    past = [x for x in s[max(0, t - 60):t] if x and x["high"] is not None]
+    if len(past) < 40:
+        return None
+    prior_high = max(x["high"] for x in past)
+    if r["high"] < prior_high * OVERNIGHT["near_high"]:
+        return None
+    vol20 = sum(x["volume"] for x in past[-20:]) / 20
+    return {"pct": pct, "open_pct": open_pct, "prev": prev, "prior_high": prior_high,
+            "vol_ratio": r["volume"] / vol20 if vol20 else None, "limit": pct >= 9.5}
+
+
+def overnight_picks(history, ref):
+    series = build_series(history)
+    t = len(history) - 1
+    out = []
+    for code, s in series.items():
+        if code in ref["disposal"]:
+            continue
+        f = _overnight_check(s, t)
+        if not f:
+            continue
+        r = s[t]
+        reasons = [
+            f"開盤 {f['open_pct']:+.1f}%，盤中漲到 {f['pct']:+.1f}%，買盤持續推升",
+            f"今日最高 {r['high']:g}，{'突破' if r['high'] > f['prior_high'] else '接近'}前 60 日高點 {f['prior_high']:g}",
+        ]
+        if f["vol_ratio"]:
+            reasons.append(f"成交量（預估全天）為 20 日均量的 {f['vol_ratio']:.1f} 倍")
+        risks = ["收盤若沒鎖住漲停、或漲幅縮小，隔天開盤平均是虧損"]
+        if f["limit"]:
+            risks.insert(0, "目前已在漲停，委買排隊中，可能買不到")
+        if code in ref["attention"]:
+            risks.append("已列注意股，若再觸發可能被處置")
+        out.append({
+            "代號": code, "名稱": r["name"], "市場": r["market"], "現價": r["close"],
+            "漲跌%": round(f["pct"], 2), "開盤%": round(f["open_pct"], 2),
+            "漲停價": tick_floor(f["prev"] * 1.1), "已漲停": f["limit"],
+            "量比": round(f["vol_ratio"], 2) if f["vol_ratio"] else None,
+            "理由": reasons, "風險": risks,
+        })
+    # 越接近漲停排越前面（收盤鎖住漲停的隔天表現最好），同漲幅依量比
+    out.sort(key=lambda p: (p["漲跌%"], p["量比"] or 0), reverse=True)
+    return out[:OVERNIGHT["top"]]
+
+
+def overnight_backtest(history):
+    """用網站的 2 年資料回測：符合條件的股票以 +7% 價格買進、隔天開盤賣出（已扣成本、含除權息）。"""
+    series = build_series(history)
+    n = len(history)
+    rs, base = [], []
+    for t in range(60, n - 1):
+        for s in series.values():
+            r, nxt = s[t], s[t + 1]
+            if not r or not nxt or nxt["open"] is None or r["change"] is None or r["close"] is None:
+                continue
+            prev = r["close"] - r["change"]
+            if prev <= 0:
+                continue
+            gap = r["close"] - (nxt["close"] - nxt["change"]) if nxt["change"] is not None else 0
+            div = gap if gap > r["close"] * 0.003 else 0  # 隔天除權息：價差加回
+            if t % 5 == 0 and r["volume"] >= 500_000:
+                b = ((nxt["open"] + div) / r["close"] - 1) * 100 - ROUND_TRIP_COST
+                if -15 < b < 15:  # 排除減資、分割等價格斷層
+                    base.append(b)
+            if r["high"] is None or (r["high"] / prev - 1) * 100 < OVERNIGHT["min_pct"]:
+                continue
+            # 研究的進場：盤中漲到 +7% 就用 +7% 價格買（開盤已在 +7% 以上的不算）
+            if (r["open"] / prev - 1) * 100 >= OVERNIGHT["min_pct"] or r["volume"] < OVERNIGHT["min_lots"] * 1000:
+                continue
+            past = [x for x in s[max(0, t - 60):t] if x and x["high"] is not None]
+            if len(past) < 40 or r["high"] < max(x["high"] for x in past) * OVERNIGHT["near_high"] or r["close"] < 10:
+                continue
+            entry = prev * (1 + OVERNIGHT["min_pct"] / 100)
+            ret = ((nxt["open"] + div) / entry - 1) * 100 - ROUND_TRIP_COST
+            if -15 < ret < 15:
+                rs.append(ret)
+    return {"from": history[60][0].isoformat(), "to": history[-1][0].isoformat(),
+            "plan": _stats(rs), "baseline": _stats(base), "cost": ROUND_TRIP_COST}

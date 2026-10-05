@@ -52,10 +52,11 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         # 明日候選、起漲前夕的股票不一定在雷達名單裡（分數或成交量未達門檻），
         # 另外算出完整明細（分數、漲幅、週轉率等），讓右側明細不缺欄位
         rev = _revenue_summary(history)
+        overnight = strategy.overnight_picks(history, res["ref"])
         known = {r["代號"] for r in res["results"]}
         detail_args = types.SimpleNamespace(**{**vars(args), "min_volume": 0})
         details = {}
-        for p in picks + pre + (rev["picks"] if rev else []):
+        for p in picks + pre + overnight + (rev["picks"] if rev else []):
             code = p["代號"]
             if code not in known and code not in details:
                 row = yaogu.analyze(code, history, res["ref"], detail_args)
@@ -65,7 +66,8 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         bt_key = (history[0][0], history[-2][0])
         if bt_key not in _backtests:
             _backtests[bt_key] = (strategy.backtest(history, insti=res["insti"]),
-                                  strategy.pre_backtest(history, market=res["market"]))
+                                  strategy.pre_backtest(history, market=res["market"]),
+                                  strategy.overnight_backtest(history))
     scanned = sum(1 for c in history[-1][1] if yaogu.is_common_stock(c))
     return {"trade_date": trade_date.isoformat(), "scanned": scanned, "live": res["live"],
             "market_open": yaogu.market_open_now(), "results": res["results"],
@@ -73,7 +75,9 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             "pre": pre, "pre_backtest": _backtests[bt_key][1],
             "market": res["market"][-1], "insti_ready": res["insti"][-1] is not None,
             "insti_excluded": excluded, "details": details, "etf": _etf_summary(),
-            "pre_total": pre_total[0] if pre_total else len(pre), "revenue": rev}
+            "pre_total": pre_total[0] if pre_total else len(pre), "revenue": rev,
+            "overnight": overnight, "overnight_backtest": _backtests[bt_key][2],
+            "overnight_research": strategy.OVERNIGHT_RESEARCH}
 
 
 def _revenue_summary(history):

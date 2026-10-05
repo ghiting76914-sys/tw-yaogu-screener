@@ -333,6 +333,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
 <main>
   <nav class="tabs" id="tabs">
     <button class="on" data-v="radar">妖股雷達<span class="count num" id="cntRadar">–</span></button>
+    <button data-v="overnight">隔日沖<span class="count num" id="cntOvernight">–</span></button>
     <button data-v="picks">明日強勢候選<span class="count num" id="cntPicks">–</span></button>
     <button data-v="pre">起漲前夕<span class="count num" id="cntPre">–</span></button>
     <button data-v="rev">營收動能<span class="count num" id="cntRev">–</span></button>
@@ -410,6 +411,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
       <div id="btBanner"></div>
       <div class="picks" id="picks"></div>
     </div>
+    <div id="overnightView" hidden></div>
     <div id="revView" hidden></div>
     <div id="etfView" hidden></div>
     <div id="preView" hidden>
@@ -544,6 +546,7 @@ async function runScreen(silent = false) {
     renderPre();
     renderEtf();
     renderRev();
+    renderOvernight();
     const first = listFor(state.view)[0];
     const keep = state.selected && findStock(state.selected);
     if (state.view === "etf") renderEtfDetail();  // 0050 專區的右側是 0050 K 線，不選個股
@@ -620,6 +623,16 @@ function detailStreak(r) {
 
 // 營收動能分頁：右側明細顯示入選理由
 function revenueReasons(code) {
+  if (state.view === "overnight") {
+    const o = (state.data.overnight || []).find((x) => x["代號"] === code);
+    if (!o) return "";
+    return `<div class="pick" style="padding:10px 14px;margin-top:12px;cursor:default">
+      <h4 style="margin:0 0 4px">隔日沖：為什麼入選</h4>
+      <ul class="why">${o["理由"].map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+      <h4 style="margin:8px 0 4px">風險</h4>
+      <ul class="risk">${o["風險"].map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+    </div>`;
+  }
   if (state.view !== "rev") return "";
   const p = ((state.data.revenue || {}).picks || []).find((x) => x["代號"] === code);
   if (!p) return "";
@@ -699,20 +712,21 @@ function listFor(view) {
   if (view === "picks") return state.data.picks || [];
   if (view === "pre") return state.data.pre || [];
   if (view === "rev") return (state.data.revenue && state.data.revenue.picks) || [];
+  if (view === "overnight") return state.data.overnight || [];
   return state.rows;
 }
 
 function findStock(code) {
   const r = state.data.results.find((x) => x["代號"] === code) || (state.data.details || {})[code];
   if (r) return r;
-  const p = (state.data.picks || []).concat(state.data.pre || [], (state.data.revenue || {}).picks || [])
+  const p = (state.data.picks || []).concat(state.data.pre || [], (state.data.revenue || {}).picks || [], state.data.overnight || [])
     .find((x) => x["代號"] === code);
   return p && { ...p, "分數": "–", "訊號": "", "20日%": null, "週轉率%": null, "5日%": p["5日%"] ?? null };
 }
 
 async function select(code) {
   state.selected = code;
-  document.querySelectorAll("#tbody tr, #revView tr[data-code]").forEach((tr) => tr.classList.toggle("sel", tr.dataset.code === code));
+  document.querySelectorAll("#tbody tr, #revView tr[data-code], #overnightView tr[data-code]").forEach((tr) => tr.classList.toggle("sel", tr.dataset.code === code));
   document.querySelectorAll(".pick").forEach((el) => el.classList.toggle("sel", el.dataset.code === code));
   const r = findStock(code);
   if (!r) return;
@@ -953,6 +967,57 @@ function renderPre() {
   }).join("");
 }
 
+// ---------------------------------------------------------------- 隔日沖
+
+function renderOvernight() {
+  const d = state.data;
+  if (!d || !d.overnight) return;
+  $("cntOvernight").textContent = d.overnight.length;
+  const R = d.overnight_research, bt = d.overnight_backtest || {}, h = bt.plan, b = bt.baseline;
+  const intraday = d.live && !d.live.final;
+  const status = intraday
+    ? `<p class="filter-note ok"><b>盤中名單（${esc(d.live.time.slice(0, 5))}）</b>：收盤前買進、明天開盤賣出。成交量已換算成全天預估。</p>`
+    : `<p class="filter-note bad">目前是收盤後的資料，<b>今天的隔日沖機會已經過了</b>（要在收盤前買進）。以下是收盤後符合條件的股票，僅供參考；每個交易日中午 12:00 會更新盤中名單並推播 LINE。</p>`;
+  const rows = d.overnight.map((p, i) => `
+    <tr data-code="${p["代號"]}" class="${p["代號"] === state.selected ? "sel" : ""}">
+      <td class="num">${i + 1}</td>
+      <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span></td>
+      <td class="num">${fmt(p["現價"])}</td>
+      <td class="num">${pct(p["漲跌%"])}%</td>
+      <td class="num col-opt">${pct(p["開盤%"], 1)}%</td>
+      <td class="num">${p["量比"] == null ? "–" : fmt(p["量比"])}</td>
+      <td class="num col-opt">${fmt(p["漲停價"])}</td>
+      <td class="l">${p["已漲停"] ? '<span class="chip sm amber">已漲停・排隊中</span>' : '<span class="chip sm blue">未漲停</span>'}</td>
+    </tr>`).join("");
+  $("overnightView").innerHTML = `
+    <div class="banner">
+      <h3>隔日沖：收盤前買進、明天開盤賣出</h3>
+      <div class="muted" style="font-size:13px">盤中漲到 +7% 以上（開盤時還沒到 +7%）、股價接近或突破 60 日高點、成交量 1,000 張以上，排除處置股；越接近漲停排越前面，最多 10 檔。</div>
+      ${status}
+      <dl class="plan" style="margin-top:10px">
+        <dt>進場</dt><dd>收盤前買進，不要追高於漲停價；已漲停的股票委買排隊中，可能買不到</dd>
+        <dt>出場</dt><dd><b>明天開盤一律賣出</b>。回測中抱到隔天收盤的結果明顯較差</dd>
+        <dt>風險</dt><dd>收盤若沒鎖住漲停，隔天開盤平均是虧損（${esc(R.opened)}）</dd>
+      </dl>
+      ${h ? `<div class="bt">
+        <div><div class="k">2 年回測（${bt.from} ～ ${bt.to}）</div><div class="v num">${h.win}%<small>勝率，${h.trades} 筆</small></div></div>
+        <div><div class="k">每筆平均（已扣成本）</div><div class="v num">${pct(h.avg)}%<small>最差 ${pct(h.worst)}%</small></div></div>
+        <div><div class="k">對照：隨便一檔收盤買、隔天開盤賣</div><div class="v num">${b ? pct(b.avg) + "%" : "–"}<small>勝率 ${b ? b.win : "–"}%</small></div></div>
+      </div>` : ""}
+      <p class="verdict">勝率約一半、每筆平均只賺 0.2～0.3%，優勢存在但不大；用手續費有折扣的券商會比較有利。</p>
+      <p class="research">📚 11 年研究（${R.period}）：「漲到 +7% 就買、接近或突破 60 日高、隔天開盤賣」訓練期勝率 ${R.train.win}%、平均 ${pct(R.train.avg)}%，驗證期勝率 ${R.test.win}%、平均 ${pct(R.test.avg)}%。參考：${esc(R.locked)}。因為只有每日開高低收資料，無法驗證「中午 12 點時的狀態」，回測以「當天曾漲到 +7%」推估。</p>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <div class="table-wrap" style="max-height:none">
+        <table>
+          <thead><tr><th>#</th><th class="l">股票</th><th>現價</th><th>漲幅</th><th class="col-opt">開盤</th><th>量比</th><th class="col-opt">漲停價</th><th class="l">狀態</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${d.overnight.length ? "" : `<div class="empty">目前沒有符合條件的股票。</div>`}
+      </div>
+    </div>`;
+}
+
 // ---------------------------------------------------------------- 營收動能
 
 function renderRev() {
@@ -1103,6 +1168,7 @@ function setView(v) {
   $("preView").hidden = v !== "pre";
   $("etfView").hidden = v !== "etf";
   $("revView").hidden = v !== "rev";
+  $("overnightView").hidden = v !== "overnight";
   if (v === "etf") { renderEtfDetail(); return; }
   const list = listFor(v);
   // 從 0050 專區切回來時，右側要換回個股明細
@@ -1227,6 +1293,10 @@ $("tabs").addEventListener("click", (e) => {
   const b = e.target.closest("button");
   if (b) setView(b.dataset.v);
 });
+$("overnightView").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-code]");
+  if (tr) select(tr.dataset.code);
+});
 $("revView").addEventListener("click", (e) => {
   const tr = e.target.closest("tr[data-code]");
   if (tr) select(tr.dataset.code);
@@ -1259,7 +1329,7 @@ if (STATIC) {
   document.querySelector("footer").insertAdjacentHTML("afterbegin", "每個交易日收盤後自動更新。");
 }
 renderHead();
-if (["#picks", "#pre", "#rev", "#etf"].includes(location.hash)) setView(location.hash.slice(1));
+if (["#overnight", "#picks", "#pre", "#rev", "#etf"].includes(location.hash)) setView(location.hash.slice(1));
 runScreen();
 </script>
 </body>

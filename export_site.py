@@ -28,7 +28,8 @@ def main():
     date_key = data["trade_date"].replace("-", "")
     codes = ({r["代號"] for r in data["results"]} | {p["代號"] for p in data["picks"]}
              | {p["代號"] for p in data["pre"]}
-             | {p["代號"] for p in (data["revenue"] or {}).get("picks", [])})
+             | {p["代號"] for p in (data["revenue"] or {}).get("picks", [])}
+             | {p["代號"] for p in data.get("overnight", [])})
     charts = {c: server.chart_data(c, date_key) for c in sorted(codes)}
 
     shutil.rmtree(SITE_DIR, ignore_errors=True)

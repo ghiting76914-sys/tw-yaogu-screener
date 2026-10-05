@@ -274,6 +274,62 @@ def quota_report(token):
         return f"查詢額度失敗：{e}"
 
 
+# ---------------------------------------------------------------- 隔日沖（中午 12:00 盤中推播）
+
+def build_overnight_flex(data):
+    picks = data.get("overnight") or []
+    live = data.get("live") or {}
+    hhmm = (live.get("time") or "")[:5]
+    bt = (data.get("overnight_backtest") or {}).get("plan")
+    rows = []
+    for i, p in enumerate(picks, 1):
+        rows.append({"type": "box", "layout": "horizontal", "spacing": "sm", "contents": [
+            text(f"{i}", size="xs", color=MUTED, flex=1),
+            text(f"{p['名稱']} {p['代號']}", size="sm", color=INK, flex=6),
+            text(f"{p['漲跌%']:+.1f}%", size="sm", weight="bold", color=UP, flex=3, align="end"),
+            text(f"{p['現價']:g}", size="xs", color=MUTED, flex=3, align="end"),
+            text("漲停" if p["已漲停"] else "—", size="xxs", color=ACCENT if p["已漲停"] else MUTED, flex=2, align="end"),
+        ]})
+    body = [
+        text("收盤前買進、明天開盤一律賣出。已漲停的股票委買排隊中，可能買不到；"
+             "收盤若沒鎖住漲停，隔天開盤平均是虧損。", size="xs", color=MUTED, wrap=True),
+        {"type": "separator"},
+    ]
+    if rows:
+        body += [{"type": "box", "layout": "horizontal", "contents": [
+            text("#", size="xxs", color=MUTED, flex=1), text("股票", size="xxs", color=MUTED, flex=6),
+            text("漲幅", size="xxs", color=MUTED, flex=3, align="end"), text("現價", size="xxs", color=MUTED, flex=3, align="end"),
+            text("狀態", size="xxs", color=MUTED, flex=2, align="end")]}, *rows]
+    else:
+        body.append(text("目前沒有符合隔日沖條件的股票。", size="sm", color=INK, wrap=True))
+    body += [{"type": "separator"},
+             text((f"📊 2 年回測：勝率 {bt['win']}%、每筆平均 {bt['avg']:+.2f}%（{bt['trades']} 筆，已扣成本）。" if bt else "")
+                  + "優勢存在但不大，請控制資金。", size="xxs", color=MUTED, wrap=True),
+             text("⚠️ 規則選股的觀察名單，非投資建議。", size="xxs", color=MUTED, wrap=True)]
+    names = "、".join(p["名稱"] for p in picks[:5]) or "目前沒有符合條件的股票"
+    return {"type": "flex", "altText": f"⚡ 隔日沖候選 {hhmm}：{names}"[:400], "contents": {
+        "type": "bubble", "size": "giga",
+        "header": {"type": "box", "layout": "vertical", "backgroundColor": INK, "paddingAll": "16px", "spacing": "xs",
+                   "contents": [text(f"隔日沖候選 · {data['trade_date'][5:].replace('-', '/')} {hhmm} 盤中", size="xxs", color="#BDB8AE"),
+                                text("⚡ 收盤前買、明天開盤賣", size="lg", weight="bold", color="#FFFFFF"),
+                                text("盤中漲到 +7% 以上、接近或突破 60 日高", size="xs", color="#FDBA74")]},
+        "body": {"type": "box", "layout": "vertical", "spacing": "sm", "paddingAll": "16px", "contents": body},
+        "footer": {"type": "box", "layout": "vertical", "paddingAll": "12px", "contents": [
+            {"type": "button", "style": "primary", "color": ACCENT, "height": "sm",
+             "action": {"type": "uri", "label": "看完整名單與理由", "uri": f"{SITE_URL}#overnight"}}]},
+    }}
+
+
+def build_overnight_text(data):
+    picks = data.get("overnight") or []
+    hhmm = ((data.get("live") or {}).get("time") or "")[:5]
+    lines = [f"⚡ 隔日沖候選｜{data['trade_date']} {hhmm} 盤中", "收盤前買進、明天開盤一律賣出。", ""]
+    lines += [f"{i}. {p['名稱']} {p['代號']}  {p['漲跌%']:+.1f}%  現價 {p['現價']:g}{'（已漲停）' if p['已漲停'] else ''}"
+              for i, p in enumerate(picks, 1)] or ["目前沒有符合條件的股票。"]
+    lines += ["", f"完整名單：{SITE_URL}#overnight"]
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------- 營收動能（每月換股日推播一次）
 
 def revenue_due(data):
@@ -377,13 +433,15 @@ def main():
         print(f"{data['trade_date']} 已發送過，略過")
         return
 
-    # 同一次推播最多 5 則訊息，只算 1 則額度
-    messages = ([flex] if send_picks else []) + ([build_revenue_flex(data)] if send_rev else [])
+    # 同一次推播最多 5 則訊息，只算 1 則額度；中午（盤中）推隔日沖，收盤後推明日強勢候選
+    main_msg = build_overnight_flex(data) if preview else flex
+    messages = ([main_msg] if send_picks else []) + ([build_revenue_flex(data)] if send_rev else [])
     err = push(token, user_id, messages)
     if err and err[0] == 400:
         # 卡片格式被拒絕時改傳純文字，確保一定收得到
         print(f"Flex 卡片被拒絕（{err[1]}），改傳純文字")
-        fallback = (texts[:4] if send_picks else []) + ([build_revenue_text(data)] if send_rev else [])
+        main_text = [build_overnight_text(data)] if preview else texts[:4]
+        fallback = (main_text if send_picks else []) + ([build_revenue_text(data)] if send_rev else [])
         err = push(token, user_id, [{"type": "text", "text": t[:5000]} for t in fallback])
     if err:
         sys.exit(f"LINE 發送失敗：HTTP {err[0]} {err[1]}")
@@ -391,7 +449,10 @@ def main():
     os.makedirs(CACHE_DIR, exist_ok=True)
     if send_picks:
         open(marker, "w").close()
-        print(f"已傳送 {data['trade_date']} {TITLE}（{len(data['picks'])} 檔）到 LINE")
+        if preview:
+            print(f"已傳送 {data['trade_date']} 隔日沖候選（{len(data.get('overnight') or [])} 檔）到 LINE")
+        else:
+            print(f"已傳送 {data['trade_date']} 明日強勢候選（{len(data['picks'])} 檔）到 LINE")
     if send_rev:
         if not args.revenue_test:  # 測試發送不記錄，換股日當天仍會正式發送
             open(rev_marker, "w").close()
