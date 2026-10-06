@@ -504,7 +504,11 @@ def main():
     if err and err[0] == 400:
         # 卡片格式被拒絕時改傳純文字，確保一定收得到
         print(f"Flex 卡片被拒絕（{err[1]}），改傳純文字")
-        main_text = [build_overnight_text(data)] if preview else texts[:4]
+        top = (data.get("revenue") or {}).get("top3") or {}
+        top_text = [f"🎯 明日精選 3 檔（明天開盤買、持有 {top.get('hold', 20)} 天）\n" + "\n".join(
+            f"{p['排名']}. {p['名稱']} {p['代號']}  收 {p['收盤']:g}  營收年增 {p['營收年增%']:+.0f}%" for p in top["picks"])
+            ] if top.get("picks") and not preview else []
+        main_text = [build_overnight_text(data)] if preview else (top_text + texts)[:4]
         fallback = (main_text if send_picks else []) + ([build_revenue_text(data)] if send_rev else [])
         err = push(token, user_id, [{"type": "text", "text": t[:5000]} for t in fallback])
     if err:

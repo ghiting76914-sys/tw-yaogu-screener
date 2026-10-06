@@ -284,7 +284,17 @@ svg.chart { width: 100%; height: auto; display: block; }
 .top3-meta { font-size: 12px; color: var(--muted); margin-top: 10px; }
 .prev-box { margin-top: 12px; }
 .prev-box h3 { margin: 0 0 6px; font-size: 14px; }
+.top3-more summary { cursor: pointer; font-size: 12px; color: var(--muted); margin-top: 10px; }
 @media (max-width: 860px) { .top3-grid { grid-template-columns: 1fr; } }
+@media (max-width: 640px) {
+  /* 手機：精選卡片橫向滑動、理由收起；分頁標籤單行可滑動 */
+  .top3-grid { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 10px; padding-bottom: 4px; }
+  .top3-card { flex: 0 0 82%; scroll-snap-align: start; }
+  .top3-card ul { display: none; }
+  .tabs { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs button { flex: 0 0 auto; white-space: nowrap; padding: 10px 12px; font-size: 14px; }
+}
 .research { font-size: 12px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 8px; margin-top: 10px !important; }
 .pick-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .pick-head .rank { font-size: 13px; color: var(--muted); font-weight: 700; }
@@ -1037,8 +1047,10 @@ function renderTop3() {
     </div>
     <div class="muted" style="font-size:13px;margin-top:4px">條件：營收創近 12 個月新高、年增 &gt; 20%、站上季線，<b>今天收盤突破 60 日新高</b>，日均量 1,000 張以上。<b>隔天開盤買進、持有 ${T.hold} 個交易日（約一個月）</b>。</div>
     ${T.picks.length ? `<div class="top3-grid">${cards}</div>` : `<div class="empty" style="padding:20px">今天沒有符合條件的股票，寧可空手。</div>`}
+    <details class="top3-more" ${innerWidth > 640 ? "open" : ""}><summary>回測成績與前一交易日表現</summary>
     <div class="top3-meta">📊 11 年回測（${R.period}，每天 3 檔、持有 ${R.hold} 天、已扣成本）：訓練期平均 ${pct(R.train.avg)}%、驗證期 ${pct(R.test.avg)}%（站上季線的股票分別 ${pct(R.train.base)}%、${pct(R.test.base)}%），${R.years} 年都贏；個股勝率約 ${R.train.win}～${R.test.win}%，<b>大約一半會賠錢</b>，獲利來自賺的時候賺比較多。${h ? ` 網站 2 年回測：平均 ${pct(h.avg)}%、勝率 ${h.win}%（${h.trades} 筆；對照 ${b ? pct(b.avg) + "%" : "–"}）。` : ""}非投資建議。</div>
-    ${prevLine ? `<div class="top3-meta">${prevLine}（還在持有中，未扣成本）</div>` : ""}`;
+    ${prevLine ? `<div class="top3-meta">${prevLine}（還在持有中，未扣成本）</div>` : ""}
+    </details>`;
 }
 
 // 各分頁最下方：前一交易日名單與今天的表現

@@ -29,8 +29,10 @@ def main():
     codes = ({r["代號"] for r in data["results"]} | {p["代號"] for p in data["picks"]}
              | {p["代號"] for p in data["pre"]}
              | {p["代號"] for p in (data["revenue"] or {}).get("picks", [])}
-             | {p["代號"] for p in data.get("overnight", [])})
-    charts = {c: server.chart_data(c, date_key) for c in sorted(codes)}
+             | {p["代號"] for p in data.get("overnight", [])}
+             | {p["代號"] for p in ((data["revenue"] or {}).get("top3") or {}).get("picks", [])})
+    # 網頁只畫最近 61 根 K 棒（今天＋前 60 日），只輸出需要的部分，檔案小很多
+    charts = {c: (server.chart_data(c, date_key) or [])[-61:] for c in sorted(codes)}
 
     shutil.rmtree(SITE_DIR, ignore_errors=True)
     os.makedirs(os.path.join(SITE_DIR, "data"))
