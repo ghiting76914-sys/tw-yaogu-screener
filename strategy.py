@@ -604,6 +604,34 @@ def hold_return(s, t, n, hold):
     return ret
 
 
+def hold_return_stop(s, t, n, hold, stop):
+    """隔日開盤買、最多持有 hold 日；盤中跌破「進場價 ×(1-stop)」就出場（跳空跌破用開盤價，一字跌停延後）。
+    回傳 (報酬 %, 是否已出場, 持有天數)，含除權息還原、未扣成本；資料不足回傳 None。"""
+    bars = held_bars(s, t + 1, n, hold + 10)
+    if not bars or bars[0][0] != t + 1:
+        return None
+    entry = bars[0][1]["open"]
+    level = entry * (1 - stop)
+    pending = False
+    for k, (d, b) in enumerate(bars):
+        if pending:
+            if not b["locked_down"]:
+                return (b["open"] / entry - 1) * 100, True, k + 1
+            continue
+        if d > t + hold:
+            break
+        if b["low"] <= level:
+            if b["locked_down"]:
+                pending = True
+                continue
+            px = level if d == t + 1 else min(b["open"], level)
+            return (px / entry - 1) * 100, True, k + 1
+        if d == t + hold:
+            return (b["close"] / entry - 1) * 100, True, k + 1
+    last = [b for d, b in bars if d <= t + hold]
+    return ((last[-1]["close"] / entry - 1) * 100, False, len(last)) if last else None
+
+
 def _stats(rs):
     if not rs:
         return None

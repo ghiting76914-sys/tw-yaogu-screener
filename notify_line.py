@@ -21,6 +21,7 @@
 所以每天兩次的排程不會重複通知。
 """
 import argparse
+import datetime as dt
 import json
 import os
 import sys
@@ -159,13 +160,13 @@ def top3_bubble(data):
         "header": {"type": "box", "layout": "vertical", "backgroundColor": UP, "paddingAll": "16px", "spacing": "xs",
                    "contents": [text(f"明日精選 · {T['date'][5:].replace('-', '/')}", size="xxs", color="#FFE4E1"),
                                 text("🎯 明天開盤買進 3 檔", size="lg", weight="bold", color="#FFFFFF"),
-                                text(f"持有 {T['hold']} 個交易日（約一個月）", size="xs", color="#FFE4E1")]},
+                                text(f"持有 {T['hold']} 個交易日，跌破進場價 -{T.get('stop', 10)}% 停損", size="xs", color="#FFE4E1")]},
         "body": {"type": "box", "layout": "vertical", "spacing": "md", "paddingAll": "16px", "contents": [
             text("營收創 12 個月新高、年增 > 20%、站上季線，今天收盤突破 60 日新高，依成交值前 3。",
                  size="xs", color=MUTED, wrap=True),
             {"type": "separator"}, *rows, {"type": "separator"},
-            text(f"📊 11 年回測：持有 20 天平均 {tr.get('avg', 0):+.2f}%～{te.get('avg', 0):+.2f}%，"
-                 f"{R.get('years', '')} 年都贏過大盤；個股勝率約一半，請分散並控制資金。",
+            text(f"📊 11 年回測（停損 -{R.get('stop', 10)}%）：每筆平均 {tr.get('avg', 0):+.2f}%～{te.get('avg', 0):+.2f}%，"
+                 f"最差 {R.get('worst', 0)}%；超過一半會停損或小賠，請分散並控制資金。",
                  size="xxs", color=MUTED, wrap=True),
         ]},
         "footer": {"type": "box", "layout": "vertical", "paddingAll": "12px", "contents": [
@@ -319,6 +320,53 @@ def push(token, user_id, messages):
             return None
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode("utf-8", "replace")
+
+
+def quota_numbers(token):
+    """(本月已用, 上限)；上限為 None 代表無上限；查不到回傳 None。"""
+    def get(path):
+        req = urllib.request.Request(f"https://api.line.me/v2/bot/message/{path}",
+                                     headers={"Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read())
+    try:
+        limit = get("quota")
+        return get("quota/consumption")["totalUsage"], (limit.get("value") if limit.get("type") == "limited" else None)
+    except Exception:
+        return None
+
+
+def owner_alerts(token, owner_id):
+    """只傳給擁有者（LINE_USER_ID）的提醒：LINE 額度快用完、cron-job.org 用的 GitHub 金鑰快到期。
+    以標記檔避免重複提醒。"""
+    if not owner_id:
+        return
+    today = dt.date.today()
+    alerts = []
+    q = quota_numbers(token)
+    if q and q[1]:
+        left = q[1] - q[0]
+        for level in (10, 30):
+            marker = os.path.join(CACHE_DIR, f"alert_quota_{today:%Y%m}_{level}")
+            if left < level and not os.path.exists(marker):
+                alerts.append((marker, f"⚠️ LINE 本月額度只剩 {left} 則（上限 {q[1]}）。群發依人數計算，"
+                                       "額度用完後當月剩下的推播會失敗，可考慮減少好友人數或升級方案。"))
+                break
+    expires = os.environ.get("CRON_TOKEN_EXPIRES", "").strip()
+    if expires:
+        try:
+            days_left = (dt.date.fromisoformat(expires) - today).days
+        except ValueError:
+            days_left = None
+        marker = os.path.join(CACHE_DIR, f"alert_token_{today.isocalendar()[0]}w{today.isocalendar()[1]}")
+        if days_left is not None and days_left <= 30 and not os.path.exists(marker):
+            alerts.append((marker, f"🔑 cron-job.org 用的 GitHub 金鑰（cron-job-yaogu）將在 {expires} 到期"
+                                   f"（剩 {days_left} 天）。請到 GitHub 重新產生，並更新兩個 cron-job.org 工作的 Authorization。"))
+    for marker, msg in alerts:
+        if push(token, owner_id, [{"type": "text", "text": msg}]) is None:
+            os.makedirs(CACHE_DIR, exist_ok=True)
+            open(marker, "w").close()
+            print(f"已提醒擁有者：{msg[:30]}…")
 
 
 def quota_report(token):
@@ -483,10 +531,15 @@ def main():
     # 去掉貼上時可能多出的空白與換行
     token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "").strip()
     send_to = os.environ.get("LINE_SEND_TO", "all").strip() or "all"
-    user_id = os.environ.get("LINE_USER_ID", "").strip() if send_to == "me" else None
+    owner_id = os.environ.get("LINE_USER_ID", "").strip()
+    user_id = owner_id if send_to == "me" else None
     if not token or (send_to == "me" and not user_id):
         print("尚未設定 LINE_CHANNEL_ACCESS_TOKEN（或 LINE_SEND_TO=me 時的 LINE_USER_ID），略過 LINE 通知")
         return
+    try:
+        owner_alerts(token, owner_id)
+    except Exception as e:
+        print(f"擁有者提醒失敗：{e}")
 
     # 盤中預覽與收盤後的正式名單分開記錄，各自一天只發一次
     marker = os.path.join(CACHE_DIR, f"line_{'preview' if preview else 'sent'}_{data['trade_date'].replace('-', '')}")

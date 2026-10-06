@@ -38,6 +38,9 @@ def save(data):
         "pre": [{**s, "突破價": p["計畫"]["levels"]["trigger"]}
                 for s, p in zip(_slim(data.get("pre") or []), data.get("pre") or [])],
         "top3": _slim((rev.get("top3") or {}).get("picks") or []),
+        # 營收動能只在換股日存（其他天名單不變）
+        "revenue": [{"代號": p["代號"], "名稱": p["名稱"], "價格": p["選股日收盤"]} for p in rev.get("picks") or []]
+        if rev.get("rebalance_date") == data["trade_date"] else [],
     }
     os.makedirs(SNAP_DIR, exist_ok=True)
     path = os.path.join(SNAP_DIR, f"{data['trade_date']}_{mode}.json")

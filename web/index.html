@@ -217,6 +217,10 @@ svg.chart { width: 100%; height: auto; display: block; }
   color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px;
 }
 .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+.tabs .tab-sep { align-self: center; margin-left: 12px; padding: 2px 8px 2px 14px; border-left: 1px solid var(--line);
+  font-size: 12px; color: var(--muted); white-space: nowrap; cursor: help; }
+.tabs button.obs { font-weight: 500; font-size: 14px; }
+.tabs button.obs:not(.on) { opacity: .7; }
 .tabs .count { font-size: 12px; font-weight: 500; background: var(--panel-2); border-radius: 999px; padding: 0 7px; margin-left: 6px; }
 .live {
   display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
@@ -267,6 +271,7 @@ svg.chart { width: 100%; height: auto; display: block; }
 .bt-table th, .bt-table td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
 .bt-table th:first-child, .bt-table td:first-child { text-align: left; white-space: normal; }
 .bt-table th { font-size: 12px; color: var(--muted); font-weight: 600; }
+.bt-table td.l, .bt-table th.l { text-align: left; }
 .bt-table tr.base td { font-weight: 700; background: var(--panel-2); }
 .bt-wrap { overflow-x: auto; }
 .etf-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow); margin-top: 12px; }
@@ -358,12 +363,14 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
   <section class="top3" id="top3Panel" hidden></section>
 
   <nav class="tabs" id="tabs">
-    <button class="on" data-v="radar">妖股雷達<span class="count num" id="cntRadar">–</span></button>
     <button data-v="overnight">隔日沖<span class="count num" id="cntOvernight">–</span></button>
-    <button data-v="picks">明日強勢候選<span class="count num" id="cntPicks">–</span></button>
-    <button data-v="pre">起漲前夕<span class="count num" id="cntPre">–</span></button>
     <button data-v="rev">營收動能<span class="count num" id="cntRev">–</span></button>
+    <button data-v="perf">實際績效</button>
     <button data-v="etf">0050 專區<span class="count" id="etfTemp">–</span></button>
+    <span class="tab-sep" title="這三個分頁的名單，2 年回測都沒有明顯優勢，僅供觀察">觀察</span>
+    <button class="obs" data-v="radar">妖股雷達<span class="count num" id="cntRadar">–</span></button>
+    <button class="obs" data-v="picks">明日強勢候選<span class="count num" id="cntPicks">–</span></button>
+    <button class="obs" data-v="pre">起漲前夕<span class="count num" id="cntPre">–</span></button>
   </nav>
 
   <div id="radarTop">
@@ -438,6 +445,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
       <div class="picks" id="picks"></div>
     </div>
     <div id="overnightView" hidden></div>
+    <div id="perfView" hidden></div>
     <div id="revView" hidden></div>
     <div id="etfView" hidden></div>
     <div id="preView" hidden>
@@ -484,7 +492,7 @@ const COLUMNS = [
 
 const state = {
   data: null, rows: [], sortKey: "分數", sortDir: -1, selected: null,
-  market: "", tradeDate: null, view: "radar",
+  market: "", tradeDate: null, view: "rev",
 };
 let refreshTimer = null, quoteTimer = null;
 
@@ -574,9 +582,11 @@ async function runScreen(silent = false) {
     renderRev();
     renderOvernight();
     renderTop3();
+    renderPerf();
     const first = listFor(state.view)[0];
     const keep = state.selected && findStock(state.selected);
     if (state.view === "etf") renderEtfDetail();  // 0050 專區的右側是 0050 K 線，不選個股
+    else if (state.view === "perf") showEmptyDetail();
     else if (keep) select(state.selected);
     else if (first) select(first["代號"]);
     else showEmptyDetail();
@@ -740,6 +750,7 @@ function listFor(view) {
   if (view === "pre") return state.data.pre || [];
   if (view === "rev") return (state.data.revenue && state.data.revenue.picks) || [];
   if (view === "overnight") return state.data.overnight || [];
+  if (view === "perf") return [];
   return state.rows;
 }
 
@@ -1019,6 +1030,64 @@ function renderPre() {
   }).join("") + prevTable("pre");
 }
 
+// ---------------------------------------------------------------- 實際績效與資金配置
+
+function renderPerf() {
+  const P = state.data && state.data.perf;
+  if (!P) { $("perfView").innerHTML = `<div class="card empty">實際績效資料讀取失敗。</div>`; return; }
+  const rev = state.data.revenue || {};
+  const T3 = rev.top3_research || {}, R = rev.research || {}, O = state.data.overnight_research || {};
+  const block = (key, title, how, expect) => {
+    const d = P[key], s = d.summary;
+    const val = (x) => x == null ? "–" : `${pct(x)}%`;
+    const rows = d.trades.slice(0, 40).map((t) => `<tr data-code="${t["代號"]}">
+      <td>${t["日期"]}</td><td class="l">${esc(t["名稱"])} <span class="code num">${t["代號"]}</span></td>
+      <td>${t["進場"] == null ? "–" : fmt(t["進場"])}</td><td>${t["出場"] == null ? "–" : fmt(t["出場"])}</td>
+      <td class="${t["報酬%"] > 0 ? "up" : t["報酬%"] < 0 ? "down" : ""}">${t["報酬%"] == null ? "–" : pct(t["報酬%"]) + "%"}</td>
+      <td class="l">${t["狀態"]}${t["狀態"] === "持有中" ? `（第 ${t["天數"]} 天）` : ""}</td></tr>`).join("");
+    return `<div class="etf-card">
+      <h3>${title}</h3>
+      <div class="muted" style="font-size:12px">${how}</div>
+      <div class="bt">
+        <div><div class="k">已出場</div><div class="v num">${s.closed}<small>筆，共 ${s.total} 筆</small></div></div>
+        <div><div class="k">已出場勝率／平均（已扣成本）</div><div class="v num">${s.win == null ? "–" : s.win + "%"}<small>${val(s.avg)}</small></div></div>
+        <div><div class="k">持有中平均（未扣成本）</div><div class="v num">${val(s.open_avg)}<small>${s.open} 筆</small></div></div>
+      </div>
+      <div class="muted" style="font-size:12px">回測預期：${expect}</div>
+      ${rows ? `<div class="bt-wrap" style="margin-top:8px"><table class="bt-table num"><thead><tr><th>選出日</th><th class="l">股票</th><th>進場</th><th>出場／目前</th><th>報酬</th><th class="l">狀態</th></tr></thead><tbody>${rows}</tbody></table></div>`
+        : `<div class="empty" style="padding:16px">還沒有紀錄。${key === "revenue" ? "下一次換股日開始記錄。" : "每天都會累積。"}</div>`}
+    </div>`;
+  };
+  $("perfView").innerHTML = `
+    <div class="banner">
+      <h3>實際績效：照網站建議操作的真實結果</h3>
+      <div class="muted" style="font-size:13px">從 ${P.since || "–"} 開始，用每天存下的名單與之後的實際股價計算；已出場的扣手續費與證交稅，持有中的只算目前漲跌。筆數少時結果波動很大，至少累積幾十筆再跟回測比較才有意義。</div>
+    </div>
+    ${block("top3", "🎯 明日精選 3 檔", "選出隔天開盤買進，持有 20 個交易日後收盤賣出；盤中跌破進場價 -10% 就停損。",
+      `每筆平均 ${pct(T3.train ? T3.train.avg : null)}%～${pct(T3.test ? T3.test.avg : null)}%，勝率約 ${T3.test ? T3.test.win : "–"}～${T3.train ? T3.train.win : "–"}%（11 年、停損 -10%）`)}
+    ${block("overnight", "⚡ 隔日沖", "13:00 名單當時的價格買進，隔天開盤賣出（已漲停排隊中的實際上可能買不到）。",
+      `每筆平均 ${pct(O.train ? O.train.avg : null)}%～${pct(O.test ? O.test.avg : null)}%，勝率約 ${O.train ? O.train.win : "–"}～${O.test ? O.test.win : "–"}%（11 年）`)}
+    ${block("revenue", "📊 營收動能", "換股隔天開盤平均買進 20 檔，持有 20 個交易日。",
+      `${R.months || "–"} 個月中 ${R.beat || "–"} 個月贏過大盤，平均每月多 ${pct(R.excess)}%（11 年）`)}
+    ${allocation()}`;
+}
+
+function allocation() {
+  return `<div class="etf-card">
+    <h3>💰 資金配置參考</h3>
+    <div class="muted" style="font-size:12px">依各策略的回測表現與最壞情況整理的「比例上限」參考，<b>不是個人化的投資建議</b>；請依自己的年齡、收入穩定度、能承受的虧損調整，投資前也只用短期內不會用到的錢。</div>
+    <div class="bt-wrap" style="margin-top:8px"><table class="bt-table">
+      <thead><tr><th>用途</th><th>策略</th><th>比例參考</th><th>為什麼</th></tr></thead>
+      <tbody>
+        <tr><td>核心</td><td>0050 定期定額</td><td>大部分</td><td style="text-align:left;white-space:normal">13 年回測中最穩、長期報酬最高的做法；每月初直接買，不必等低點</td></tr>
+        <tr><td>衛星</td><td>營收動能 20 檔／明日精選 3 檔</td><td>小部分<br>（例如合計不超過 2～3 成）</td><td style="text-align:left;white-space:normal">11 年都贏過大盤，但最差一個月約 -19%～-21%、單筆最差曾到 -60%；分散持有，單一股票不超過總資金 5%</td></tr>
+        <tr><td>短線</td><td>隔日沖</td><td>很小<br>（例如不超過 1 成）</td><td style="text-align:left;white-space:normal">勝率約一半、每筆平均只有 +0.2～0.3%，單筆最差約 -15%；鎖漲停的常買不到，交易成本影響很大</td></tr>
+        <tr><td>不建議</td><td>妖股雷達、明日強勢候選、起漲前夕</td><td>0</td><td style="text-align:left;white-space:normal">2 年回測沒有明顯優勢，僅供觀察</td></tr>
+      </tbody>
+    </table></div>
+  </div>`;
+}
+
 // ---------------------------------------------------------------- 明日精選 3 檔
 
 function renderTop3() {
@@ -1034,6 +1103,7 @@ function renderTop3() {
         <span class="name" style="font-size:16px">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span></div>
       <div style="margin-top:4px"><span class="px num ${p["漲跌%"] > 0 ? "up" : p["漲跌%"] < 0 ? "down" : ""}">${fmt(p["收盤"])}</span>
         <span class="num">${pct(p["漲跌%"])}%</span> <span class="chip sm red">營收年增 ${pct(p["營收年增%"], 0)}%</span></div>
+      ${p["停損參考"] ? `<div class="muted" style="font-size:12px;margin-top:2px">停損參考：約 ${fmt(p["停損參考"])}（以今天收盤估算，實際為進場價 -10%）</div>` : ""}
       <ul>${p["理由"].map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
     </div>`).join("");
   const prev = (state.data.previous || {}).top3 || [];
@@ -1045,10 +1115,10 @@ function renderTop3() {
       <h2>🎯 明日精選 3 檔</h2>
       <span class="muted" style="font-size:12px">${T.date} ${intraday ? "盤中暫定，收盤後確認" : "收盤選出"}，共 ${T.qualified} 檔符合，依成交值取前 3</span>
     </div>
-    <div class="muted" style="font-size:13px;margin-top:4px">條件：營收創近 12 個月新高、年增 &gt; 20%、站上季線，<b>今天收盤突破 60 日新高</b>，日均量 1,000 張以上。<b>隔天開盤買進、持有 ${T.hold} 個交易日（約一個月）</b>。</div>
+    <div class="muted" style="font-size:13px;margin-top:4px">條件：營收創近 12 個月新高、年增 &gt; 20%、站上季線，<b>今天收盤突破 60 日新高</b>，日均量 1,000 張以上。<b>隔天開盤買進、持有 ${T.hold} 個交易日（約一個月）；盤中跌破進場價 -${T.stop || 10}% 就停損</b>。</div>
     ${T.picks.length ? `<div class="top3-grid">${cards}</div>` : `<div class="empty" style="padding:20px">今天沒有符合條件的股票，寧可空手。</div>`}
     <details class="top3-more" ${innerWidth > 640 ? "open" : ""}><summary>回測成績與前一交易日表現</summary>
-    <div class="top3-meta">📊 11 年回測（${R.period}，每天 3 檔、持有 ${R.hold} 天、已扣成本）：訓練期平均 ${pct(R.train.avg)}%、驗證期 ${pct(R.test.avg)}%（站上季線的股票分別 ${pct(R.train.base)}%、${pct(R.test.base)}%），${R.years} 年都贏；個股勝率約 ${R.train.win}～${R.test.win}%，<b>大約一半會賠錢</b>，獲利來自賺的時候賺比較多。${h ? ` 網站 2 年回測：平均 ${pct(h.avg)}%、勝率 ${h.win}%（${h.trades} 筆；對照 ${b ? pct(b.avg) + "%" : "–"}）。` : ""}非投資建議。</div>
+    <div class="top3-meta">📊 11 年回測（${R.period}，每天 3 檔、持有 ${R.hold} 天、停損 -${R.stop}%、已扣成本）：訓練期平均 ${pct(R.train.avg)}%、驗證期 ${pct(R.test.avg)}%（站上季線的股票持有 20 天分別 ${pct(R.train.base)}%、${pct(R.test.base)}%）；個股勝率約 ${R.test.win}～${R.train.win}%，<b>超過一半會停損或小賠</b>，獲利來自賺的時候賺比較多；最差一筆 ${R.worst}%。${R.no_stop ? `不停損的話平均較高（${pct(R.no_stop.train)}%、${pct(R.no_stop.test)}%，${R.no_stop.years} 年都贏），但最差一筆曾到 ${R.no_stop.worst}%。` : ""}${h ? ` 網站 2 年回測：平均 ${pct(h.avg)}%、勝率 ${h.win}%（${h.trades} 筆；對照 ${b ? pct(b.avg) + "%" : "–"}）。` : ""}非投資建議。</div>
     ${prevLine ? `<div class="top3-meta">${prevLine}（還在持有中，未扣成本）</div>` : ""}
     </details>`;
 }
@@ -1275,7 +1345,7 @@ function renderEtfDetail() {
 
 function setView(v) {
   state.view = v;
-  history.replaceState(null, "", v === "radar" ? location.pathname : `#${v}`);
+  history.replaceState(null, "", `#${v}`);
   $("tabs").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
   $("radarTop").hidden = v !== "radar";
   $("radarView").hidden = v !== "radar";
@@ -1284,7 +1354,9 @@ function setView(v) {
   $("etfView").hidden = v !== "etf";
   $("revView").hidden = v !== "rev";
   $("overnightView").hidden = v !== "overnight";
+  $("perfView").hidden = v !== "perf";
   if (v === "etf") { renderEtfDetail(); return; }
+  if (v === "perf") { showEmptyDetail(); return; }
   const list = listFor(v);
   // 從 0050 專區切回來時，右側要換回個股明細
   if (list && list.length) select(list.some((x) => x["代號"] === state.selected) ? state.selected : list[0]["代號"]);
@@ -1414,6 +1486,10 @@ $("top3Panel").addEventListener("click", (e) => {
   if (state.view === "etf") setView("radar");
   select(el.dataset.code);
 });
+$("perfView").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-code]");
+  if (tr) select(tr.dataset.code);
+});
 $("overnightView").addEventListener("click", (e) => {
   const tr = e.target.closest("tr[data-code]");
   if (tr) select(tr.dataset.code);
@@ -1450,7 +1526,12 @@ if (STATIC) {
   document.querySelector("footer").insertAdjacentHTML("afterbegin", "每個交易日收盤後自動更新。");
 }
 renderHead();
-if (["#overnight", "#picks", "#pre", "#rev", "#etf"].includes(location.hash)) setView(location.hash.slice(1));
+{
+  const h = location.hash.slice(1);
+  const now = new Date(), hm = now.getHours() * 100 + now.getMinutes(), wd = now.getDay();
+  const intraday = wd >= 1 && wd <= 5 && hm >= 900 && hm <= 1330;
+  setView(["overnight", "picks", "pre", "rev", "etf", "perf", "radar"].includes(h) ? h : (intraday ? "overnight" : "rev"));
+}
 runScreen();
 </script>
 </body>

@@ -15,6 +15,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 import etf
+import perf
 import revenue
 import snapshots
 import strategy
@@ -91,6 +92,11 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         snapshots.save(data)
     except Exception as e:
         print(f"名單存檔失敗：{e}")
+    try:
+        data["perf"] = perf.compute(history)  # 存檔後再算，今天的名單也會列為「等待進場」
+    except Exception as e:
+        print(f"實際績效計算失敗：{e}")
+        data["perf"] = None
     return data
 
 

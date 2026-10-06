@@ -243,10 +243,13 @@ def backtest(history, rev):
 
 # ---------------------------------------------------------------- 明日精選 3 檔
 
-TOP3_RESEARCH = {  # research/top3.py 的結果（2015/04～2026/10），網頁說明用
-    "period": "2015/04～2026/10", "hold": 20,
-    "train": {"avg": 3.42, "win": 46.8, "base": 0.09}, "test": {"avg": 4.09, "win": 49.6, "base": 1.11},
-    "years": "12/12", "hold10": "持有 10 天：訓練期 +1.61%、驗證期 +1.75%（對照 -0.40%、+0.03%）",
+TOP3_STOP = 0.10  # 停損：盤中跌破進場價 -10% 就出場
+TOP3_RESEARCH = {  # research/top3.py、research/top3_stop.py 的結果（2015/04～2026/10），網頁說明用
+    "period": "2015/04～2026/10", "hold": 20, "stop": 10,
+    # 停損 -10%（建議）
+    "train": {"avg": 2.31, "win": 39.2, "base": 0.09}, "test": {"avg": 2.70, "win": 38.6, "base": 1.11}, "worst": -19.5,
+    # 不停損、固定持有 20 天
+    "no_stop": {"train": 3.45, "test": 4.20, "worst": -62.7, "years": "12/12"},
 }
 TOP3_MIN_LOTS = 1000
 
@@ -284,18 +287,20 @@ def top3(history, rev):
     picks = []
     for rank, c in enumerate(chosen[:3], 1):
         s, f, r = c["s"], c["f"], c["s"][t]
+        stop_est = strategy.tick_floor(r["close"] * (1 - TOP3_STOP))
         pct = r["change"] / (r["close"] - r["change"]) * 100 if r["change"] is not None and r["close"] > r["change"] else None
         picks.append({
             "排名": rank, "代號": c["code"], "名稱": r["name"], "市場": r["market"], "收盤": r["close"],
             "漲跌%": round(pct, 2) if pct is not None else None, "營收年增%": f["yoy"], "營收月份": f["ym"],
-            "成交值(億)": round(c["value"] / 1e8, 2),
+            "成交值(億)": round(c["value"] / 1e8, 2), "停損參考": stop_est,
             "理由": [
                 f"{f['ym'][:4]}/{f['ym'][4:]} 營收創近 12 個月新高，年增 {f['yoy']:+.1f}%",
                 f"今天收盤 {r['close']:g} 突破前 60 日高點 {c['prior_high']:g}",
                 f"站上季線（{c['ma60']:.2f}），20 日平均成交值 {c['value'] / 1e8:,.1f} 億",
             ],
         })
-    return {"date": dates[t].isoformat(), "qualified": len(chosen), "picks": picks, "hold": TOP3_RESEARCH["hold"]}
+    return {"date": dates[t].isoformat(), "qualified": len(chosen), "picks": picks, "hold": TOP3_RESEARCH["hold"],
+            "stop": TOP3_RESEARCH["stop"]}
 
 
 def top3_backtest(history, rev):
@@ -307,9 +312,9 @@ def top3_backtest(history, rev):
     rs, base = [], []
     for t in range(60, n - H):
         for c in _top3_at(series, t, dates, rev)[:3]:
-            r = strategy.hold_return(c["s"], t, n, H)
-            if r is not None:
-                rs.append(r - strategy.ROUND_TRIP_COST)
+            r = strategy.hold_return_stop(c["s"], t, n, H, TOP3_STOP)
+            if r is not None and r[1] and -70 < r[0] < 300:
+                rs.append(r[0] - strategy.ROUND_TRIP_COST)
         if t % 5 == 0:  # 對照組每 5 天抽樣
             for s in series.values():
                 x = s[t]
