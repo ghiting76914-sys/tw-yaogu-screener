@@ -17,7 +17,7 @@ SITE_DIR = os.path.join(yaogu.BASE_DIR, "site")
 
 
 def main():
-    # --preview：盤中預覽，用證交所即時行情當作今天（中午 12:00 執行）
+    # --preview：盤中預覽，用證交所即時行情當作今天（13:00 執行，推播隔日沖）
     preview = "--preview" in sys.argv
     # 雲端主機時區不一定是台灣，產生時間一律以台灣時間顯示
     now = dt.datetime.now(dt.timezone(dt.timedelta(hours=8)))

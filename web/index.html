@@ -977,7 +977,7 @@ function renderOvernight() {
   const intraday = d.live && !d.live.final;
   const status = intraday
     ? `<p class="filter-note ok"><b>盤中名單（${esc(d.live.time.slice(0, 5))}）</b>：收盤前買進、明天開盤賣出。成交量已換算成全天預估。</p>`
-    : `<p class="filter-note bad">目前是收盤後的資料，<b>今天的隔日沖機會已經過了</b>（要在收盤前買進）。以下是收盤後符合條件的股票，僅供參考；每個交易日中午 12:00 會更新盤中名單並推播 LINE。</p>`;
+    : `<p class="filter-note bad">目前是收盤後的資料，<b>今天的隔日沖機會已經過了</b>（要在收盤前買進）。以下是收盤後符合條件的股票，僅供參考；每個交易日 13:00 會更新盤中名單並推播 LINE。</p>`;
   const rows = d.overnight.map((p, i) => `
     <tr data-code="${p["代號"]}" class="${p["代號"] === state.selected ? "sel" : ""}">
       <td class="num">${i + 1}</td>
