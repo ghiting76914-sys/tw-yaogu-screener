@@ -20,7 +20,7 @@ import revenue_study as R  # noqa: E402
 
 COST = 0.585
 HOLD = 20
-EXITS = ("固定持有20天", "停損-8%", "停損-10%", "停損-15%", "跌破月線出場")
+EXITS = tuple(sys.argv[1].split(",")) if len(sys.argv) > 1 else ("固定持有20天", "停損-8%", "停損-10%", "停損-15%", "跌破月線出場")
 
 
 def main():
@@ -58,9 +58,13 @@ def main():
                 ex = p["exit"]
                 out = None
                 if ex.startswith("停損"):
-                    stop = p["entry"] * (1 - int(ex[3:-1]) / 100)
+                    stop = p["entry"] * (1 - int(ex[3:].split("%")[0]) / 100)
                     if l + adj <= stop:
                         out = stop if first or o + adj > stop else o + adj
+                    elif "停利" in ex:  # 例如「停損-10%停利+5%」：盤中漲到目標就賣
+                        tp = p["entry"] * (1 + int(ex.split("停利+")[1].rstrip("%")) / 100)
+                        if h + adj >= tp:
+                            out = tp if first or o + adj < tp else o + adj
                 elif ex == "跌破月線出場" and ma20 and c < ma20:
                     out = c + adj
                 if out is None and p["k"] >= HOLD:

@@ -443,6 +443,56 @@ def build_overnight_text(data):
 
 # ---------------------------------------------------------------- 營收動能（每月換股日推播一次）
 
+def dip_due(data):
+    """0050 今天收盤第一次跌到新的回檔級距（5%、10%…），收盤後推播一次。"""
+    e = data.get("etf") or {}
+    d = e.get("dip") or {}
+    return bool(d.get("new") and e.get("date") == data["trade_date"])
+
+
+def build_dip_flex(data):
+    e = data["etf"]
+    d = e["dip"]
+    strong = d["level"] >= d["strong"]
+    color = UP if strong else ACCENT
+    stats = {x["level"]: x for x in d["stats"]}
+    me, base = stats.get(min(d["level"], 20)) or {}, stats[None]
+    rows = [level_row(f"回檔 {x['level']}%", f"{x['price']:g}", ("✓ 已到" if x["hit"] else x["label"]),
+                      UP if x["level"] >= d["strong"] else ACCENT, MUTED if x["hit"] else None) for x in d["prices"]]
+    contents = [
+        text(f"0050 回檔通知 · {data['trade_date']}", size="xs", color=MUTED),
+        text(f"{'🔥 強力買進' if strong else '🟠 買進'}", size="xl", weight="bold", color=color),
+        text(f"0050 收盤 {e['close']:g}，距離近一年高點 {d['high']:g}（{d['high_date']}）回檔 {-d['dd']:.1f}%，"
+             f"已達 {d['level']}% 級距。", size="sm", color=INK, wrap=True),
+        {"type": "separator"},
+        text("各級距價位（高點往下每 5%）", size="xs", color=MUTED),
+        {"type": "box", "layout": "vertical", "backgroundColor": SOFT, "cornerRadius": "8px", "contents": rows},
+    ]
+    h = me.get("h250")
+    if h:
+        contents.append(text(
+            f"{d['from'][:4]} 年以來回檔 {min(d['level'], 20)}% 時買進：一年後平均 {h['avg']:+.1f}%、賺錢機率 {h['win']}%"
+            f"（{h['n']} 次）；任意一天買為 {base['h250']['avg']:+.1f}%、{base['h250']['win']}%。",
+            size="xs", color=INK, wrap=True))
+    contents.append(text("再多跌 5% 會再通知一次；創新高後重新計算。⚠️ 非投資建議。", size="xxs", color=MUTED, wrap=True))
+    bubble = {
+        "type": "bubble", "size": "mega",
+        "body": {"type": "box", "layout": "vertical", "spacing": "md", "paddingAll": "18px", "contents": contents},
+        "footer": {"type": "box", "layout": "vertical", "paddingAll": "12px",
+                   "contents": [{"type": "button", "style": "secondary", "height": "sm",
+                                 "action": {"type": "uri", "label": "打開 0050 專區", "uri": SITE_URL}}]},
+    }
+    return {"type": "flex", "altText": f"{'🔥 強力買進' if strong else '🟠 買進'}：0050 回檔 {-d['dd']:.1f}%（收盤 {e['close']:g}）",
+            "contents": bubble}
+
+
+def build_dip_text(data):
+    e, d = data["etf"], data["etf"]["dip"]
+    return (f"{'🔥 強力買進' if d['level'] >= d['strong'] else '🟠 買進'}｜0050 回檔通知 {data['trade_date']}\n"
+            f"收盤 {e['close']:g}，距近一年高點 {d['high']:g} 回檔 {-d['dd']:.1f}%（{d['level']}% 級距）\n"
+            + "\n".join(f"回檔 {x['level']}%：{x['price']:g}{' ✓' if x['hit'] else ''}" for x in d["prices"]))
+
+
 def revenue_due(data):
     """今天是營收動能換股日，且有名單。"""
     r = data.get("revenue")
@@ -526,6 +576,10 @@ def main():
         if data.get("revenue"):
             print("\n\n========== 營收動能（換股日才會發送）==========\n")
             print(build_revenue_text(data))
+        if dip_due(data):
+            print("\n\n========== 0050 回檔通知 ==========\n")
+            print(build_dip_text(data))
+            print(json.dumps(build_dip_flex(data), ensure_ascii=False)[:300])
         return
 
     # 去掉貼上時可能多出的空白與換行
@@ -546,13 +600,16 @@ def main():
     rev_marker = os.path.join(CACHE_DIR, f"line_rev_sent_{data['trade_date'].replace('-', '')}")
     send_picks = not args.revenue_test and (args.force or not os.path.exists(marker))
     send_rev = rev_due and (args.force or args.revenue_test or not os.path.exists(rev_marker))
-    if not send_picks and not send_rev:
+    dip_marker = os.path.join(CACHE_DIR, f"line_dip_sent_{data['trade_date'].replace('-', '')}")
+    send_dip = not preview and not args.revenue_test and dip_due(data) and (args.force or not os.path.exists(dip_marker))
+    if not send_picks and not send_rev and not send_dip:
         print(f"{data['trade_date']} 已發送過，略過")
         return
 
     # 同一次推播最多 5 則訊息，只算 1 則額度；中午（盤中）推隔日沖，收盤後推明日強勢候選
     main_msg = build_overnight_flex(data) if preview else flex
-    messages = ([main_msg] if send_picks else []) + ([build_revenue_flex(data)] if send_rev else [])
+    messages = ([main_msg] if send_picks else []) + ([build_revenue_flex(data)] if send_rev else []) \
+        + ([build_dip_flex(data)] if send_dip else [])
     err = push(token, user_id, messages)
     if err and err[0] == 400:
         # 卡片格式被拒絕時改傳純文字，確保一定收得到
@@ -562,7 +619,9 @@ def main():
             f"{p['排名']}. {p['名稱']} {p['代號']}  收 {p['收盤']:g}  營收年增 {p['營收年增%']:+.0f}%" for p in top["picks"])
             ] if top.get("picks") and not preview else []
         main_text = [build_overnight_text(data)] if preview else (top_text + texts)[:4]
-        fallback = (main_text if send_picks else []) + ([build_revenue_text(data)] if send_rev else [])
+        fallback = (main_text if send_picks else []) + ([build_revenue_text(data)] if send_rev else []) \
+            + ([build_dip_text(data)] if send_dip else [])
+        fallback = fallback[:4] + fallback[-1:] if len(fallback) > 5 else fallback  # 一次最多 5 則，保留最後的通知
         err = push(token, user_id, [{"type": "text", "text": t[:5000]} for t in fallback])
     if err:
         sys.exit(f"LINE 發送失敗：HTTP {err[0]} {err[1]}")
@@ -578,6 +637,9 @@ def main():
         if not args.revenue_test:  # 測試發送不記錄，換股日當天仍會正式發送
             open(rev_marker, "w").close()
         print(f"已傳送 {data['revenue']['rebalance_date']} 營收動能名單（{len(data['revenue']['picks'])} 檔）到 LINE")
+    if send_dip:
+        open(dip_marker, "w").close()
+        print(f"已傳送 0050 回檔 {data['etf']['dip']['level']}% 通知到 LINE")
     print(f"發送對象：{'只有自己' if user_id else '所有好友（群發）'}；{quota_report(token)}")
 
 

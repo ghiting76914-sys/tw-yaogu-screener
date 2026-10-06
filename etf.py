@@ -177,9 +177,64 @@ def hit_rates(rows, start=120, horizon=20):
     return out
 
 
+# ---------------------------------------------------------------- 回檔買進訊號
+
+DIP_STEP = 5      # 每回檔 5%（從近 52 週最高收盤算）一個級距
+DIP_STRONG = 10   # 回檔 10% 以上為「強力買進」
+
+
+def dip_label(level):
+    return "強力買進" if level >= DIP_STRONG else "買進" if level >= DIP_STEP else None
+
+
+def mark_dips(rows):
+    """每天標上回檔級距 dip（0、5、10…）與 dip_new（這段回檔第一次跌到這麼深，才發通知）。
+    創 52 週新高時重新計算，避免在同一級距附近上下震盪時重複通知。"""
+    deepest = 0
+    for r in rows:
+        dd = -r["dd"] * 100
+        level = int(dd // DIP_STEP) * DIP_STEP if dd > 0 else 0
+        if r["dd"] >= 0:
+            deepest = 0
+        r["dip"] = level
+        r["dip_new"] = level >= DIP_STEP and level > deepest
+        deepest = max(deepest, level)
+    return rows
+
+
+def dip_stats(rows, start=250):
+    """各級距第一次觸發後買進，20／60／250 個交易日後的報酬（還原股價，含配息）。"""
+    n = len(rows)
+
+    def fwd(idxs, h):
+        v = [(rows[i + h]["adj_close"] / rows[i]["adj_close"] - 1) * 100 for i in idxs if i + h < n]
+        return {"n": len(v), "avg": round(sum(v) / len(v), 1), "win": round(sum(x > 0 for x in v) / len(v) * 100)} if v else None
+
+    out = [{"level": None, "label": "任意一天買", **{f"h{h}": fwd(range(start, n), h) for h in (20, 60, 250)}}]
+    for lv in (5, 10, 15, 20):
+        idxs = [i for i in range(start, n) if rows[i]["dip_new"] and rows[i]["dip"] == lv]
+        out.append({"level": lv, "label": f"回檔 {lv}%（{dip_label(lv)}）",
+                    **{f"h{h}": fwd(idxs, h) for h in (20, 60, 250)}})
+    return out
+
+
+def dip_summary(rows):
+    last = rows[-1]
+    window = rows[-250:]
+    hi = max(window, key=lambda r: r["adj_close"])
+    return {
+        "dd": round(last["dd"] * 100, 2), "level": last["dip"], "label": dip_label(last["dip"]), "new": last["dip_new"],
+        "high": round(hi["adj_close"], 2), "high_date": hi["date"], "step": DIP_STEP, "strong": DIP_STRONG,
+        "prices": [{"level": lv, "label": dip_label(lv), "price": round(hi["adj_close"] * (1 - lv / 100), 2),
+                    "hit": last["dip"] >= lv} for lv in (5, 10, 15, 20)],
+        "stats": dip_stats(rows),
+        "from": rows[250]["date"],
+    }
+
+
 def summary():
     """0050 專區需要的所有資料。價位皆以還原股價計算，最新價格即實際成交價。"""
-    rows = indicators(load_history())
+    rows = mark_dips(indicators(load_history()))
     last = rows[-1]
     hist_bias = sorted(r["bias60"] for r in rows[120:] if r["bias60"] is not None)
     pct_rank = round(sum(b <= last["bias60"] for b in hist_bias) / len(hist_bias) * 100)
@@ -197,7 +252,7 @@ def summary():
         "pct": round(last["change"] / (last["close"] - last["change"]) * 100, 2) if last["change"] is not None else None,
         "levels": levels, "bias60": round(last["bias60"] * 100, 2), "bias_rank": pct_rank, "temp": temp,
         "dd": round(last["dd"] * 100, 2), "trading_day_of_month": len(month_idx),
-        "backtest": backtest(rows),
+        "backtest": backtest(rows), "dip": dip_summary(rows),
         "bars": [{"date": r["date"], "open": round(r["adj_open"], 2), "high": round(r["adj_high"], 2),
                   "low": round(r["adj_low"], 2), "close": round(r["adj_close"], 2),
                   "volume": int((r["volume"] or 0) / 1000)} for r in rows[-61:]],

@@ -1279,7 +1279,8 @@ function renderEtf() {
     $("etfTemp").textContent = "–";
     return;
   }
-  $("etfTemp").textContent = e.temp;
+  const dip = e.dip;
+  $("etfTemp").textContent = dip && dip.label ? dip.label : e.temp;
   const tempCls = e.temp === "偏熱" ? "up" : e.temp === "偏冷" ? "down" : "";
   const early = e.trading_day_of_month <= 3;
   const bt = e.backtest;
@@ -1296,6 +1297,7 @@ function renderEtf() {
         : `每月固定買、越早越好。<span class="up">本月還沒買的話，明天開盤直接買</span>，不需要等低點`}</div>
       <div class="muted" style="font-size:13px">13 年回測（${bt.from} ～ ${bt.to}）：所有「掛低價等回檔」的買法，平均成本都比「每月第一個交易日開盤直接買」<b>高 ${Math.min(...second).toFixed(1)}%～${worst.toFixed(1)}%</b>，三個子期間結果一致。0050 長期向上，等待的代價比等到的折扣大。</div>
     </div>
+    ${dip ? dipCard(e, dip) : ""}
 
     <div class="etf-card">
       <div class="etf-head">
@@ -1330,6 +1332,31 @@ function renderEtf() {
           `<td class="${i === 0 ? "" : d > 0 ? "up" : "down"}">${i === 0 ? "基準" : (d > 0 ? "+" : "") + d.toFixed(2) + "%"}</td>`).join("")}</tr>`).join("")}</tbody>
       </table></div>
       <p class="research">回測只代表過去 13 年台股長期上漲的情況。若未來出現長期下跌，等低點的買法可能會比較好。非投資建議，請依自己的資金規劃分配。</p>
+    </div>`;
+}
+
+function dipCard(e, d) {
+  const strong = d.level >= d.strong;
+  const cls = d.label ? "up" : "";
+  const head = d.label
+    ? `<span class="${cls}" style="font-weight:800">${strong ? "🔥 強力買進" : "🟠 買進"}</span>：距近一年高點回檔 <b class="num">${(-d.dd).toFixed(1)}%</b>，已達 ${d.level}% 級距${d.new ? "（今天新觸發，已推播 LINE）" : ""}`
+    : `目前沒有訊號：距近一年高點 ${fmt(d.high)}（${d.high_date}）回檔 <b class="num">${(-d.dd).toFixed(1)}%</b>，未達 ${d.step}%`;
+  const cell = (x) => x ? `${x.avg > 0 ? "+" : ""}${x.avg.toFixed(1)}%<span class="muted">｜${x.win}%</span>` : "–";
+  return `
+    <div class="etf-card">
+      <h3>回檔加碼訊號</h3>
+      <div class="etf-verdict" style="font-size:15px">${head}</div>
+      <div class="ladder num">
+        ${d.prices.map((x) => `<div><div class="k">回檔 ${x.level}%｜${x.label}</div>
+          <div class="v ${x.hit ? "up" : ""}">${fmt(x.price)}</div>
+          <div class="s ${x.hit ? "up" : "muted"}">${x.hit ? "✓ 已到" : `距現價 ${((x.price / e.close - 1) * 100).toFixed(1)}%`}</div></div>`).join("")}
+      </div>
+      <div class="bt-wrap" style="margin-top:12px"><table class="bt-table num">
+        <thead><tr><th>${d.from.slice(0, 4)} 年以來，第一次跌到該級距時買進</th><th>20 天後</th><th>60 天後</th><th>一年後</th></tr></thead>
+        <tbody>${d.stats.map((r, i) => `<tr class="${i === 0 ? "base" : ""}"><td>${esc(r.label)}${r.h250 ? `<span class="muted">（${r.h250.n} 次）</span>` : ""}</td>
+          <td>${cell(r.h20)}</td><td>${cell(r.h60)}</td><td>${cell(r.h250)}</td></tr>`).join("")}</tbody>
+      </table></div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">平均報酬｜賺錢機率；用還原股價（含配息）。從近 52 週最高收盤往下每 ${d.step}% 一個級距：${d.step}% 為「買進」、${d.strong}% 以上為「強力買進」。同一段回檔只在跌到更深的級距時通知（收盤後推播 LINE），創新高後重新計算。<b>這是額外加碼的時機，每月定期定額照常買</b>；回檔 5% 的歷史表現與平常差不多，10% 以上才明顯較好。</p>
     </div>`;
 }
 
