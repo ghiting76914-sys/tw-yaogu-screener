@@ -328,6 +328,11 @@ svg.chart { width: 100%; height: auto; display: block; }
 .plan dd { margin: 0; }
 .ladder { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border-radius: 10px; overflow: hidden; margin-top: 14px; }
 .ladder div { background: var(--panel-2); padding: 8px 12px; }
+.perf-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; background: var(--line); border-radius: 10px; overflow: hidden; margin-top: 12px; }
+.perf-grid > div { background: var(--panel-2); padding: 8px 10px; }
+.perf-grid .k { font-size: 12px; color: var(--muted); }
+.perf-grid .v { font-size: 16px; font-weight: 700; }
+@media (max-width: 760px) { .perf-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .ladder .k { font-size: 12px; color: var(--muted); }
 .ladder .v { font-size: 17px; font-weight: 700; }
 .ladder .s { font-size: 12px; }
@@ -1306,6 +1311,9 @@ function renderEtf() {
         <span class="num">${pct(e.pct)}%</span>
         <span class="muted" style="font-size:12px">${e.date} 收盤</span>
       </div>
+      ${e.perf ? `<div class="perf-grid num">${e.perf.map((p) => `<div title="${p.from} 收盤起算">
+        <div class="k">${p.label}</div><div class="v ${p.pct > 0 ? "up" : p.pct < 0 ? "down" : ""}">${p.pct > 0 ? "+" : ""}${p.pct.toFixed(2)}%</div></div>`).join("")}</div>
+      <div class="muted" style="font-size:11px;margin-top:4px">績效含配息（還原股價），以期初當天或之前最後一個交易日收盤起算；與只看股價的網站會有些微差異。</div>` : ""}
       <div class="ladder num">
         <div><div class="k">明日開盤（建議）</div><div class="v up">市價買進</div><div class="s muted">今日收盤 ${fmt(e.close)}</div></div>
         ${lv}

@@ -232,6 +232,30 @@ def dip_summary(rows):
     }
 
 
+PERIODS = (("近 1 週", 7), ("近 1 個月", 1), ("近 3 個月", 3), ("近 6 個月", 6), ("今年以來", None), ("近 1 年", 12), ("近 3 年", 36))
+
+
+def period_returns(rows):
+    """各期間報酬（還原股價，含配息、不受分割影響）。基準為期初日期當天或之前最後一個交易日的收盤。"""
+    last = rows[-1]
+    end = dt.date.fromisoformat(last["date"])
+    out = []
+    for label, k in PERIODS:
+        if k is None:
+            start = dt.date(end.year - 1, 12, 31)
+        elif k == 7:
+            start = end - dt.timedelta(days=7)
+        else:
+            y, m = divmod(end.month - 1 - k, 12)
+            y, m = end.year + y, m + 1
+            start = dt.date(y, m, min(end.day, 28 if m == 2 else 30 if m in (4, 6, 9, 11) else 31))
+        base = next((r for r in reversed(rows) if r["date"] <= start.isoformat()), None)
+        if base:
+            out.append({"label": label, "from": base["date"],
+                        "pct": round((last["adj_close"] / base["adj_close"] - 1) * 100, 2)})
+    return out
+
+
 def summary():
     """0050 專區需要的所有資料。價位皆以還原股價計算，最新價格即實際成交價。"""
     rows = mark_dips(indicators(load_history()))
@@ -253,6 +277,7 @@ def summary():
         "levels": levels, "bias60": round(last["bias60"] * 100, 2), "bias_rank": pct_rank, "temp": temp,
         "dd": round(last["dd"] * 100, 2), "trading_day_of_month": len(month_idx),
         "backtest": backtest(rows), "dip": dip_summary(rows),
+        "perf": period_returns(rows),
         "bars": [{"date": r["date"], "open": round(r["adj_open"], 2), "high": round(r["adj_high"], 2),
                   "low": round(r["adj_low"], 2), "close": round(r["adj_close"], 2),
                   "volume": int((r["volume"] or 0) / 1000)} for r in rows[-61:]],
