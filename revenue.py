@@ -241,6 +241,89 @@ def backtest(history, rev):
     }
 
 
+# ---------------------------------------------------------------- 明日精選 3 檔
+
+TOP3_RESEARCH = {  # research/top3.py 的結果（2015/04～2026/10），網頁說明用
+    "period": "2015/04～2026/10", "hold": 20,
+    "train": {"avg": 3.42, "win": 46.8, "base": 0.09}, "test": {"avg": 4.09, "win": 49.6, "base": 1.11},
+    "years": "12/12", "hold10": "持有 10 天：訓練期 +1.61%、驗證期 +1.75%（對照 -0.40%、+0.03%）",
+}
+TOP3_MIN_LOTS = 1000
+
+
+def _top3_at(series, t, dates, rev):
+    """第 t 天收盤後的精選名單：營收動能 + 今天收盤突破前 60 日最高價，依 20 日成交值排序取前 3。"""
+    out = []
+    for code, s in series.items():
+        r = s[t]
+        if not r or r["close"] is None or r["close"] < 10 or r["high"] is None:
+            continue
+        past = [x for x in s[max(0, t - 60):t] if x and x["high"] is not None and x["close"] is not None]
+        if len(past) < 59 or r["close"] <= max(x["high"] for x in past[-60:]):
+            continue  # 先檢查最便宜的條件：今天收盤是否突破前 60 日高點
+        last20 = past[-19:] + [r]
+        if sum(x["volume"] for x in last20) / 20 < TOP3_MIN_LOTS * 1000:
+            continue
+        ma60 = (sum(x["close"] for x in past[-59:]) + r["close"]) / 60
+        if r["close"] <= ma60:
+            continue
+        f = features(rev, code, dates[t])
+        if not qualifies(f):
+            continue
+        out.append({"code": code, "s": s, "f": f, "ma60": ma60, "prior_high": max(x["high"] for x in past[-60:]),
+                    "value": sum(x["close"] * x["volume"] for x in last20) / 20})
+    out.sort(key=lambda x: -x["value"])
+    return out
+
+
+def top3(history, rev):
+    dates = [d for d, _ in history]
+    series = strategy.build_series(history)
+    t = len(history) - 1
+    chosen = _top3_at(series, t, dates, rev)
+    picks = []
+    for rank, c in enumerate(chosen[:3], 1):
+        s, f, r = c["s"], c["f"], c["s"][t]
+        pct = r["change"] / (r["close"] - r["change"]) * 100 if r["change"] is not None and r["close"] > r["change"] else None
+        picks.append({
+            "排名": rank, "代號": c["code"], "名稱": r["name"], "市場": r["market"], "收盤": r["close"],
+            "漲跌%": round(pct, 2) if pct is not None else None, "營收年增%": f["yoy"], "營收月份": f["ym"],
+            "成交值(億)": round(c["value"] / 1e8, 2),
+            "理由": [
+                f"{f['ym'][:4]}/{f['ym'][4:]} 營收創近 12 個月新高，年增 {f['yoy']:+.1f}%",
+                f"今天收盤 {r['close']:g} 突破前 60 日高點 {c['prior_high']:g}",
+                f"站上季線（{c['ma60']:.2f}），20 日平均成交值 {c['value'] / 1e8:,.1f} 億",
+            ],
+        })
+    return {"date": dates[t].isoformat(), "qualified": len(chosen), "picks": picks, "hold": TOP3_RESEARCH["hold"]}
+
+
+def top3_backtest(history, rev):
+    """網站 2 年資料：每天精選前 3 檔，隔天開盤買、持有 20 個交易日（含除權息、已扣成本），對照站上季線的流動股。"""
+    dates = [d for d, _ in history]
+    series = strategy.build_series(history)
+    n = len(history)
+    H = TOP3_RESEARCH["hold"]
+    rs, base = [], []
+    for t in range(60, n - H):
+        for c in _top3_at(series, t, dates, rev)[:3]:
+            r = strategy.hold_return(c["s"], t, n, H)
+            if r is not None:
+                rs.append(r - strategy.ROUND_TRIP_COST)
+        if t % 5 == 0:  # 對照組每 5 天抽樣
+            for s in series.values():
+                x = s[t]
+                if not x or x["close"] is None or x["close"] < 10 or x["volume"] < TOP3_MIN_LOTS * 1000:
+                    continue
+                win = [y["close"] for y in s[max(0, t - 59):t + 1] if y and y["close"] is not None]
+                if len(win) == 60 and x["close"] > sum(win) / 60:
+                    r = strategy.hold_return(s, t, n, H)
+                    if r is not None:
+                        base.append(r - strategy.ROUND_TRIP_COST)
+    return {"from": dates[60].isoformat(), "to": dates[n - H - 1].isoformat(),
+            "plan": strategy._stats(rs), "baseline": strategy._stats(base), "hold": H}
+
+
 def summary(history):
     """營收動能分頁需要的資料；營收抓不到時回傳 None，不影響其他分頁。"""
     dates = [d for d, _ in history]
@@ -251,4 +334,7 @@ def summary(history):
         return None
     p["backtest"] = backtest(history, rev)
     p["research"] = RESEARCH
+    p["top3"] = top3(history, rev)
+    p["top3_backtest"] = top3_backtest(history, rev)
+    p["top3_research"] = TOP3_RESEARCH
     return p

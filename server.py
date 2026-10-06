@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, urlparse
 
 import etf
 import revenue
+import snapshots
 import strategy
 import yaogu
 
@@ -68,8 +69,9 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             _backtests[bt_key] = (strategy.backtest(history, insti=res["insti"]),
                                   strategy.pre_backtest(history, market=res["market"]),
                                   strategy.overnight_backtest(history))
+        previous = _previous(history, res, small_cap)
     scanned = sum(1 for c in history[-1][1] if yaogu.is_common_stock(c))
-    return {"trade_date": trade_date.isoformat(), "scanned": scanned, "live": res["live"],
+    data = {"trade_date": trade_date.isoformat(), "scanned": scanned, "live": res["live"],
             "market_open": yaogu.market_open_now(), "results": res["results"],
             "picks": picks, "backtest": _backtests[bt_key][0],
             "pre": pre, "pre_backtest": _backtests[bt_key][1],
@@ -77,7 +79,44 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             "insti_excluded": excluded, "details": details, "etf": _etf_summary(),
             "pre_total": pre_total[0] if pre_total else len(pre), "revenue": rev,
             "overnight": overnight, "overnight_backtest": _backtests[bt_key][2],
-            "overnight_research": strategy.OVERNIGHT_RESEARCH}
+            "overnight_research": strategy.OVERNIGHT_RESEARCH, "previous": previous}
+    try:
+        snapshots.save(data)
+    except Exception as e:
+        print(f"名單存檔失敗：{e}")
+    return data
+
+
+def _previous(history, res, small_cap):
+    """前一交易日名單對照；沒有存檔的名單用前一天的資料重新計算。"""
+    prev_hist = history[:-1]  # 同一個物件重複使用，build_series 只需計算一次
+
+    def slim(lst, extra=None):
+        return [{"代號": p["代號"], "名稱": p["名稱"], "價格": p.get("收盤", p.get("現價")),
+                 **(extra(p) if extra else {})} for p in lst]
+
+    def recompute(kind):
+        ref = res["ref"]
+        if kind == "picks":
+            lst = strategy.tomorrow_picks(prev_hist, ref, small_cap, insti=res["insti"][-2],
+                                          insti_hist=res["insti"][:-1])
+            return slim(lst, lambda p: {"進場區間": [p["計畫"]["levels"]["entry_low"],
+                                                   p["計畫"]["levels"]["entry_high"]]})
+        if kind == "pre":
+            return slim(strategy.pre_picks(prev_hist, ref, small_cap),
+                        lambda p: {"突破價": p["計畫"]["levels"]["trigger"]})
+        if kind == "overnight":  # 沒有盤中存檔時，以前一天收盤資料推算（買進價為前一天收盤價）
+            return slim(strategy.overnight_picks(prev_hist, ref))
+        if kind == "top3":
+            rev = revenue.load_revenue([d for d, _ in prev_hist])
+            return slim(revenue.top3(prev_hist, rev)["picks"])
+        return []
+
+    try:
+        return snapshots.previous(history, recompute)
+    except Exception as e:
+        print(f"前一交易日對照失敗：{e}")
+        return None
 
 
 def _revenue_summary(history):

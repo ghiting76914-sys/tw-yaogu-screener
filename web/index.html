@@ -271,6 +271,20 @@ svg.chart { width: 100%; height: auto; display: block; }
 .bt-wrap { overflow-x: auto; }
 .etf-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow); margin-top: 12px; }
 .etf-card h3 { margin: 0 0 6px; font-size: 14px; }
+.top3 { margin-bottom: 16px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--up);
+  border-radius: 12px; padding: 14px 18px; box-shadow: var(--shadow); }
+.top3-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.top3-head h2 { margin: 0; font-size: 17px; }
+.top3-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }
+.top3-card { background: var(--panel-2); border-radius: 10px; padding: 12px 14px; cursor: pointer; border: 1px solid transparent; }
+.top3-card:hover { border-color: var(--muted); }
+.top3-card.sel { border-color: var(--accent); }
+.top3-card .px { font-size: 20px; font-weight: 700; }
+.top3-card ul { margin: 8px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); }
+.top3-meta { font-size: 12px; color: var(--muted); margin-top: 10px; }
+.prev-box { margin-top: 12px; }
+.prev-box h3 { margin: 0 0 6px; font-size: 14px; }
+@media (max-width: 860px) { .top3-grid { grid-template-columns: 1fr; } }
 .research { font-size: 12px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 8px; margin-top: 10px !important; }
 .pick-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .pick-head .rank { font-size: 13px; color: var(--muted); font-weight: 700; }
@@ -331,6 +345,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
 </header>
 
 <main>
+  <section class="top3" id="top3Panel" hidden></section>
+
   <nav class="tabs" id="tabs">
     <button class="on" data-v="radar">妖股雷達<span class="count num" id="cntRadar">–</span></button>
     <button data-v="overnight">隔日沖<span class="count num" id="cntOvernight">–</span></button>
@@ -547,6 +563,7 @@ async function runScreen(silent = false) {
     renderEtf();
     renderRev();
     renderOvernight();
+    renderTop3();
     const first = listFor(state.view)[0];
     const keep = state.selected && findStock(state.selected);
     if (state.view === "etf") renderEtfDetail();  // 0050 專區的右側是 0050 K 線，不選個股
@@ -719,7 +736,8 @@ function listFor(view) {
 function findStock(code) {
   const r = state.data.results.find((x) => x["代號"] === code) || (state.data.details || {})[code];
   if (r) return r;
-  const p = (state.data.picks || []).concat(state.data.pre || [], (state.data.revenue || {}).picks || [], state.data.overnight || [])
+  const p = (state.data.picks || []).concat(state.data.pre || [], (state.data.revenue || {}).picks || [], state.data.overnight || [],
+    ((state.data.revenue || {}).top3 || {}).picks || [])
     .find((x) => x["代號"] === code);
   return p && { ...p, "分數": "–", "訊號": "", "20日%": null, "週轉率%": null, "5日%": p["5日%"] ?? null };
 }
@@ -727,7 +745,7 @@ function findStock(code) {
 async function select(code) {
   state.selected = code;
   document.querySelectorAll("#tbody tr, #revView tr[data-code], #overnightView tr[data-code]").forEach((tr) => tr.classList.toggle("sel", tr.dataset.code === code));
-  document.querySelectorAll(".pick").forEach((el) => el.classList.toggle("sel", el.dataset.code === code));
+  document.querySelectorAll(".pick, .top3-card").forEach((el) => el.classList.toggle("sel", el.dataset.code === code));
   const r = findStock(code);
   if (!r) return;
   clearTimeout(quoteTimer);
@@ -841,7 +859,7 @@ function renderPicks() {
   </div>`;
 
   if (!d.picks.length) {
-    $("picks").innerHTML = `<div class="card empty">今天沒有符合條件的股票。<br><small>條件刻意設得嚴格，沒有好機會時寧可空手。</small></div>`;
+    $("picks").innerHTML = `<div class="card empty">今天沒有符合條件的股票。<br><small>條件刻意設得嚴格，沒有好機會時寧可空手。</small></div>` + prevTable("picks");
     return;
   }
   $("picks").innerHTML = d.picks.map((p, i) => `
@@ -872,7 +890,7 @@ function renderPicks() {
           <ul class="risk">${p["風險"].map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
         </div>
       </div>
-    </article>`).join("");
+    </article>`).join("") + prevTable("picks");
 }
 
 function ladder(p) {
@@ -923,7 +941,7 @@ function renderPre() {
   </div>`;
 
   if (!d.pre.length) {
-    $("pre").innerHTML = `<div class="card empty">今天沒有符合起漲前夕型態的股票。</div>`;
+    $("pre").innerHTML = `<div class="card empty">今天沒有符合起漲前夕型態的股票。</div>` + prevTable("pre");
     return;
   }
   $("pre").innerHTML = d.pre.map((p, i) => {
@@ -964,7 +982,67 @@ function renderPre() {
         </div>
       </div>
     </article>`;
-  }).join("");
+  }).join("") + prevTable("pre");
+}
+
+// ---------------------------------------------------------------- 明日精選 3 檔
+
+function renderTop3() {
+  const r = state.data && state.data.revenue;
+  const T = r && r.top3;
+  if (!T) { $("top3Panel").hidden = true; return; }
+  $("top3Panel").hidden = false;
+  const R = r.top3_research, bt = r.top3_backtest || {}, h = bt.plan, b = bt.baseline;
+  const intraday = state.data.live && !state.data.live.final;
+  const cards = T.picks.map((p) => `
+    <div class="top3-card" data-code="${p["代號"]}">
+      <div><span class="rank num" style="color:var(--up)">#${p["排名"]}</span>
+        <span class="name" style="font-size:16px">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span></div>
+      <div style="margin-top:4px"><span class="px num ${p["漲跌%"] > 0 ? "up" : p["漲跌%"] < 0 ? "down" : ""}">${fmt(p["收盤"])}</span>
+        <span class="num">${pct(p["漲跌%"])}%</span> <span class="chip sm red">營收年增 ${pct(p["營收年增%"], 0)}%</span></div>
+      <ul>${p["理由"].map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+    </div>`).join("");
+  const prev = (state.data.previous || {}).top3 || [];
+  const prevLine = prev.length
+    ? `前一交易日（${state.data.previous.date}）精選：` + prev.map((p) => `${esc(p["名稱"])} 今開 ${p["今開"] == null ? "–" : fmt(p["今開"])} → 今收 ${p["今收"] == null ? "–" : fmt(p["今收"])}（${p["今日報酬%"] == null ? "–" : pct(p["今日報酬%"]) + "%"}）`).join("、")
+    : "";
+  $("top3Panel").innerHTML = `
+    <div class="top3-head">
+      <h2>🎯 明日精選 3 檔</h2>
+      <span class="muted" style="font-size:12px">${T.date} ${intraday ? "盤中暫定，收盤後確認" : "收盤選出"}，共 ${T.qualified} 檔符合，依成交值取前 3</span>
+    </div>
+    <div class="muted" style="font-size:13px;margin-top:4px">條件：營收創近 12 個月新高、年增 &gt; 20%、站上季線，<b>今天收盤突破 60 日新高</b>，日均量 1,000 張以上。<b>隔天開盤買進、持有 ${T.hold} 個交易日（約一個月）</b>。</div>
+    ${T.picks.length ? `<div class="top3-grid">${cards}</div>` : `<div class="empty" style="padding:20px">今天沒有符合條件的股票，寧可空手。</div>`}
+    <div class="top3-meta">📊 11 年回測（${R.period}，每天 3 檔、持有 ${R.hold} 天、已扣成本）：訓練期平均 ${pct(R.train.avg)}%、驗證期 ${pct(R.test.avg)}%（站上季線的股票分別 ${pct(R.train.base)}%、${pct(R.test.base)}%），${R.years} 年都贏；個股勝率約 ${R.train.win}～${R.test.win}%，<b>大約一半會賠錢</b>，獲利來自賺的時候賺比較多。${h ? ` 網站 2 年回測：平均 ${pct(h.avg)}%、勝率 ${h.win}%（${h.trades} 筆；對照 ${b ? pct(b.avg) + "%" : "–"}）。` : ""}非投資建議。</div>
+    ${prevLine ? `<div class="top3-meta">${prevLine}（還在持有中，未扣成本）</div>` : ""}`;
+}
+
+// 各分頁最下方：前一交易日名單與今天的表現
+function prevTable(kind) {
+  const P = state.data.previous;
+  if (!P || !P[kind] || !P[kind].length) return "";
+  const src = P.sources[kind];
+  const val = (x) => x == null ? "–" : fmt(x);
+  const ret = (x) => x == null ? "–" : `${pct(x)}%`;
+  let head = "", rows = "", note = "";
+  if (kind === "overnight") {
+    head = "<th class='l'>股票</th><th>前一天買進價</th><th>今開（賣出）</th><th>報酬（已扣成本）</th><th>今收</th>";
+    rows = P[kind].map((p) => `<tr><td class="l">${esc(p["名稱"])} <span class="code num">${p["代號"]}</span></td><td class="num">${val(p["價格"])}</td><td class="num">${val(p["今開"])}</td><td class="num">${ret(p["賣出報酬%"])}</td><td class="num">${val(p["今收"])}</td></tr>`).join("");
+    const done = P[kind].filter((p) => p["賣出報酬%"] != null);
+    if (done.length) note = `平均 ${pct(done.reduce((a, p) => a + p["賣出報酬%"], 0) / done.length)}%，${done.filter((p) => p["賣出報酬%"] > 0).length}/${done.length} 檔賺錢。`;
+  } else if (kind === "picks") {
+    head = "<th class='l'>股票</th><th>前一天收盤</th><th>進場區間</th><th>今開</th><th>開盤狀態</th><th>開盤→收盤</th>";
+    rows = P[kind].map((p) => `<tr><td class="l">${esc(p["名稱"])} <span class="code num">${p["代號"]}</span></td><td class="num">${val(p["價格"])}</td><td class="num">${p["進場區間"] ? p["進場區間"].join("～") : "–"}</td><td class="num">${val(p["今開"])}</td><td class="l">${p["開盤狀態"] || "–"}</td><td class="num">${ret(p["今日報酬%"])}</td></tr>`).join("");
+  } else if (kind === "pre") {
+    head = "<th class='l'>股票</th><th>前一天收盤</th><th>突破價</th><th>今高</th><th>今天</th><th>突破後到收盤</th>";
+    rows = P[kind].map((p) => `<tr><td class="l">${esc(p["名稱"])} <span class="code num">${p["代號"]}</span></td><td class="num">${val(p["價格"])}</td><td class="num">${val(p["突破價"])}</td><td class="num">${val(p["今高"])}</td><td class="l">${p["已突破"] ? '<span class="chip sm red">已突破</span>' : "未突破"}</td><td class="num">${ret(p["突破後報酬%"])}</td></tr>`).join("");
+  }
+  return `<div class="etf-card prev-box">
+    <h3>前一交易日（${P.date}）名單，今天（${P.today}）的表現 <span class="muted" style="font-weight:400;font-size:12px">${esc(src)}</span></h3>
+    ${note ? `<div class="muted" style="font-size:12px">${note}</div>` : ""}
+    <div class="bt-wrap"><table class="bt-table num"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>
+    ${src === "重新計算" ? `<p class="research">前一天沒有存檔，以前一天的收盤資料重新計算名單${kind === "overnight" ? "，買進價以前一天收盤價推估" : ""}。之後每天都會存檔，可以直接對照當時推播的名單。</p>` : ""}
+  </div>`;
 }
 
 // ---------------------------------------------------------------- 隔日沖
@@ -1015,7 +1093,8 @@ function renderOvernight() {
         </table>
         ${d.overnight.length ? "" : `<div class="empty">目前沒有符合條件的股票。</div>`}
       </div>
-    </div>`;
+    </div>
+    ${prevTable("overnight")}`;
 }
 
 // ---------------------------------------------------------------- 營收動能
@@ -1292,6 +1371,12 @@ $("thead").addEventListener("click", (e) => {
 $("tabs").addEventListener("click", (e) => {
   const b = e.target.closest("button");
   if (b) setView(b.dataset.v);
+});
+$("top3Panel").addEventListener("click", (e) => {
+  const el = e.target.closest(".top3-card");
+  if (!el) return;
+  if (state.view === "etf") setView("radar");
+  select(el.dataset.code);
 });
 $("overnightView").addEventListener("click", (e) => {
   const tr = e.target.closest("tr[data-code]");
