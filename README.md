@@ -33,7 +33,7 @@ python3 server.py
 
 ### 隔日沖（網址 `#overnight`）
 
-每個交易日中午 12:00 用盤中即時行情選股，LINE 推播「⚡ 隔日沖候選」：盤中漲到 +7% 以上（開盤時還沒到 +7%）、
+每個交易日 13:00 用盤中即時行情選股（收盤前約 25 分鐘可以下單），LINE 推播「⚡ 隔日沖候選」：盤中漲到 +7% 以上（開盤時還沒到 +7%）、
 股價接近或突破 60 日高點、成交量 1,000 張以上，排除處置股，越接近漲停排越前面，最多 10 檔。
 **收盤前買進、明天開盤一律賣出。**
 
@@ -117,8 +117,8 @@ GitHub 排程常延遲或被略過，所以有三道觸發，LINE 同一交易�
    執行 `scripts/trigger_update.sh`，網站上的交易日還不是今天就觸發一次，紀錄在 `output/trigger.log`。
    Mac 睡眠時會在醒來後補跑。停用：`launchctl unload ~/Library/LaunchAgents/com.ghiting.yaogu-trigger.plist`
 
-**中午 12:00 盤中預覽**：cron-job.org 另一個工作在平日 12:00 以同樣方式呼叫 GitHub API，
-body 為 `{"ref":"main","inputs":{"preview":"true"}}`（GitHub 排程也有 12:00 的備援）。
+**13:00 盤中預覽（隔日沖）**：cron-job.org 另一個工作在平日 13:00 以同樣方式呼叫 GitHub API，
+body 為 `{"ref":"main","inputs":{"preview":"true"}}`（GitHub 排程也有 13:00 的備援，Mac 在 13:05 檢查）。
 `export_site.py --preview` 改用證交所即時行情當作今天，成交量依已過的交易時間換算成全天預估，
 網站標示「盤中預覽」，LINE 推播「⚡ 隔日沖候選」（收盤後才推播明日強勢候選）。三大法人資料尚未公布、不排除法人賣超；
 名單會隨收盤變動，回測只適用收盤後的正式名單。盤中預覽與正式名單的 LINE 推播分開記錄、各一天一次。
