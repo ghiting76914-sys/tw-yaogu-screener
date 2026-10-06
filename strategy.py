@@ -43,6 +43,16 @@ def build_series(history):
     return _series_cache[key]
 
 
+def _atr(bars, k=14):
+    """平均真實波幅 ATR(k)：最近 k 天「最高－最低、與前一天收盤的跳空」取最大值後平均。"""
+    trs = []
+    for prev, x in zip(bars[-k - 1:-1], bars[-k:]):
+        if None in (x["high"], x["low"], prev["close"]):
+            continue
+        trs.append(max(x["high"] - x["low"], abs(x["high"] - prev["close"]), abs(x["low"] - prev["close"])))
+    return sum(trs) / len(trs) if len(trs) >= 10 else None
+
+
 def features(s, t):
     r = s[t]
     if r is None or None in (r["close"], r["high"], r["low"]):
@@ -82,6 +92,7 @@ def features(s, t):
         "r5": (r["close"] / closes[-6] - 1) * 100 if len(closes) >= 6 else None,
         "streak": streak,
         "one_price": rng == 0,
+        "atr": _atr(past + [r]),
     }
 
 
@@ -124,8 +135,14 @@ def tick_floor(price):
     return round(int(round(price / tick, 6)) * tick, 2)
 
 
+ATR_MULT = 1.5  # 停損距離 = 1.5 倍 ATR（依個股波動調整；2 年回測與舊規則績效相當）
+
+
 def stop_price(f):
-    """停損價：訊號日最低價；若距離收盤超過 8%，改用收盤 -7%。"""
+    """停損價：收盤 - 1.5 倍 ATR(14)，讓停損、停利依每檔股票平常的波動調整。
+    沒有 ATR 時用舊規則：訊號日最低價；若距離收盤超過 8%，改用收盤 -7%。"""
+    if f.get("atr"):
+        return tick_floor(f["close"] - ATR_MULT * f["atr"])
     if (f["close"] - f["low"]) / f["close"] > 0.08:
         return tick_floor(f["close"] * 0.93)
     return f["low"]
@@ -187,7 +204,8 @@ def explain(f, cap_e, small_cap, attention):
     plan = {
         "levels": lv,
         "entry": f"明日開盤落在 {lv['entry_low']:g}～{lv['entry_high']:g} 之間才進場；開太高不追、開太低代表轉弱不買",
-        "stop": f"盤中跌破 {lv['stop']:g}（{pct(lv['stop']):+.1f}%）立即停損，代表突破失敗",
+        "stop": f"盤中跌破 {lv['stop']:g}（{pct(lv['stop']):+.1f}%，約 {ATR_MULT:g} 倍日均波動）立即停損，代表突破失敗"
+                if f.get("atr") else f"盤中跌破 {lv['stop']:g}（{pct(lv['stop']):+.1f}%）立即停損，代表突破失敗",
         "tp1": f"漲到 {lv['tp1']:g}（{pct(lv['tp1']):+.1f}%）先賣一半，剩下的停損移到成本價",
         "tp2": f"漲到 {lv['tp2']:g}（{pct(lv['tp2']):+.1f}%）全部出場",
         "exit": f"最多持有 {MAX_HOLD} 個交易日，期滿沒到目標就收盤出場",
