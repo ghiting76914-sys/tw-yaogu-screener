@@ -10,13 +10,18 @@ mkdir -p "$(dirname "$LOG")"
 today="$(date +%F)"
 
 # 網站上的交易日；中午的盤中預覽不算（live 尚未收盤時回傳 preview）
-site_date=$(curl -s -m 30 "$SITE?t=$(date +%s)" | /usr/bin/python3 -c "
+# 網路短暫不通時，等 1 分鐘重試，最多 3 次
+for attempt in 1 2 3; do
+  site_date=$(curl -s -m 30 "$SITE?t=$(date +%s)" | /usr/bin/python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 live = d.get('live')
 print('preview' if live and not live.get('final') else d['trade_date'])" 2>/dev/null)
-running=$("$GH" run list --repo "$REPO" --workflow update.yml --limit 5 --json status \
-  --jq '[.[] | select(.status != "completed")] | length' 2>>"$LOG")
+  running=$("$GH" run list --repo "$REPO" --workflow update.yml --limit 5 --json status \
+    --jq '[.[] | select(.status != "completed")] | length' 2>>"$LOG")
+  [ -n "$site_date" ] && [ -n "$running" ] && break
+  sleep 60
+done
 
 if [ "$site_date" = "$today" ]; then
   echo "$(date '+%F %T') 網站已是今天的資料，略過" >> "$LOG"

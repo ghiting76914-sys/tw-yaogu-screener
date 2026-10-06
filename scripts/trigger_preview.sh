@@ -6,8 +6,13 @@ REPO="ghiting76914-sys/tw-yaogu-screener"
 LOG="$HOME/tw-yaogu-screener/output/trigger.log"
 mkdir -p "$(dirname "$LOG")"
 since="$(date -u +%Y-%m-%d)T04:55:00Z"   # 台灣時間 12:55
-started=$("$GH" run list --repo "$REPO" --workflow update.yml --limit 10 --json createdAt \
-  --jq "[.[] | select(.createdAt >= \"$since\")] | length" 2>>"$LOG")
+# 網路短暫不通時，等 1 分鐘重試，最多 3 次
+for attempt in 1 2 3; do
+  started=$("$GH" run list --repo "$REPO" --workflow update.yml --limit 10 --json createdAt \
+    --jq "[.[] | select(.createdAt >= \"$since\")] | length" 2>>"$LOG")
+  [ -n "$started" ] && break
+  sleep 60
+done
 if [ -z "$started" ]; then
   echo "$(date '+%F %T') 盤中預覽：無法查詢 GitHub" >> "$LOG"
 elif [ "$started" -gt 0 ]; then
