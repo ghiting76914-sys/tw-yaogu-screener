@@ -276,6 +276,14 @@ svg.chart { width: 100%; height: auto; display: block; }
 .bt-wrap { overflow-x: auto; }
 .etf-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow); margin-top: 12px; }
 .etf-card h3 { margin: 0 0 6px; font-size: 14px; }
+.pivots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
+.pivots > div { background: var(--panel-2); border-radius: 10px; padding: 8px 8px; min-width: 0; border-top: 3px solid var(--line); }
+.pivots > .r { border-top-color: var(--up); }
+.pivots > .s { border-top-color: var(--down); }
+.pivots .k { font-size: 11px; color: var(--muted); }
+.pivots .v { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pivots .h { font-size: 11px; color: var(--muted); }
+.pivot-note { font-size: 11px; color: var(--muted); margin-top: 4px; }
 .top3 { margin-bottom: 16px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--up);
   border-radius: 12px; padding: 14px 18px; box-shadow: var(--shadow); }
 .top3-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
@@ -784,6 +792,7 @@ async function select(code) {
         <div class="num">${pct(chg)}%</div>
       </div>
     </div>
+    <div id="pivots"></div>
     ${revenueReasons(code)}
     ${breakdownTable(r)}
     <div class="ohlc num" id="ohlc">&nbsp;</div>
@@ -815,6 +824,7 @@ async function select(code) {
       bars = json.bars;
     }
     if (state.selected !== code) return;
+    renderPivots(bars);
     const pre = (state.data.pre || []).find((x) => x["代號"] === code);
     drawChart(bars, pre ? [
       { price: pre["箱頂"], label: "箱頂", color: "var(--up)" },
@@ -1332,6 +1342,7 @@ function renderEtfDetail() {
         <div class="muted" style="margin-top:6px;font-size:12px">還原 K 線（含配息、分割），近 60 日</div></div>
       <div class="d-price"><div class="p num ${e.pct > 0 ? "up" : e.pct < 0 ? "down" : ""}">${fmt(e.close)}</div><div class="num">${pct(e.pct)}%</div></div>
     </div>
+    <div id="pivots"></div>
     <div class="ohlc num" id="ohlc">&nbsp;</div>
     <div id="chart"></div>
     <div class="links">
@@ -1341,6 +1352,7 @@ function renderEtfDetail() {
   </div>`;
   const colors = { ma20: "var(--warn)", ma60: "var(--info)", ma120: "var(--down)" };
   drawChart(e.bars, e.levels.map((l) => ({ price: l.price, label: l.label, color: colors[l.key], full: true })));
+  renderPivots(e.bars);
 }
 
 function setView(v) {
@@ -1360,6 +1372,33 @@ function setView(v) {
   const list = listFor(v);
   // 從 0050 專區切回來時，右側要換回個股明細
   if (list && list.length) select(list.some((x) => x["代號"] === state.selected) ? state.selected : list[0]["代號"]);
+}
+
+// ---------------------------------------------------------------- 樞紐點：明日參考壓力與支撐
+
+function tickFloor(p) {
+  const t = p < 10 ? 0.01 : p < 50 ? 0.05 : p < 100 ? 0.1 : p < 500 ? 0.5 : p < 1000 ? 1 : 5;
+  return Math.round(Math.floor(p / t + 1e-6) * t * 100) / 100;
+}
+
+function renderPivots(bars) {
+  const el = $("pivots");
+  if (!el || !bars || bars.length < 2) return;
+  const b = bars[bars.length - 1], prev = bars[bars.length - 2];
+  const P = (b.high + b.low + b.close) / 3, R = b.high - b.low;
+  const lv = { R2: P + R, R1: 2 * P - b.low, S1: 2 * P - b.high, S2: P - R };
+  const chg = prev.close ? (b.close / prev.close - 1) * 100 : 0;
+  const st = state.data.pivot_stats || {};
+  const g = chg >= 7 && st.strong ? st.strong : st.all;
+  const intraday = state.data.live && !state.data.live.final && b.date === state.data.trade_date;
+  const card = (k, cls, label) => `<div class="${cls}"><div class="k">${label} ${k}</div>
+    <div class="v num">${fmt(tickFloor(lv[k]))}</div>
+    <div class="h">${g && g[k] != null ? `隔天碰到 ${g[k]}%` : ""}</div></div>`;
+  el.innerHTML = `<div class="pivots">
+      ${card("R2", "r", "壓力（上）")}${card("R1", "r", "壓力（上）")}${card("S1", "s", "支撐（下）")}${card("S2", "s", "支撐（下）")}
+    </div>
+    <div class="pivot-note">明日參考價：依${intraday ? "目前（盤中暫定）" : "今天"}的最高、最低、收盤計算（樞紐點）。R 可當停利參考、S 可當停損參考；
+    「隔天碰到」是 2 年資料中隔天最高價／最低價觸及的機率${g === st.strong ? "（今天大漲 7% 以上的股票）" : "（所有股票）"}。</div>`;
 }
 
 // ---------------------------------------------------------------- K 線圖（SVG）

@@ -76,7 +76,8 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         if bt_key not in _backtests:
             _backtests[bt_key] = (strategy.backtest(history, insti=res["insti"]),
                                   strategy.pre_backtest(history, market=res["market"]),
-                                  strategy.overnight_backtest(history))
+                                  strategy.overnight_backtest(history),
+                                  strategy.pivot_stats(history))
         previous = _previous(history, res, small_cap)
     scanned = sum(1 for c in history[-1][1] if yaogu.is_common_stock(c))
     data = {"trade_date": trade_date.isoformat(), "scanned": scanned, "live": res["live"],
@@ -87,7 +88,8 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             "insti_excluded": excluded, "details": details, "etf": _etf_summary(),
             "pre_total": pre_total[0] if pre_total else len(pre), "revenue": rev,
             "overnight": overnight, "overnight_backtest": _backtests[bt_key][2],
-            "overnight_research": strategy.OVERNIGHT_RESEARCH, "previous": previous}
+            "overnight_research": strategy.OVERNIGHT_RESEARCH, "previous": previous,
+            "pivot_stats": _backtests[bt_key][3]}
     try:
         snapshots.save(data)
     except Exception as e:

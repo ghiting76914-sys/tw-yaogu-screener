@@ -632,6 +632,38 @@ def hold_return_stop(s, t, n, hold, stop):
     return ((last[-1]["close"] / entry - 1) * 100, False, len(last)) if last else None
 
 
+def pivot_levels(high, low, close):
+    """樞紐點（Pivot Point）：用今天的最高、最低、收盤算出明天的參考壓力與支撐。"""
+    p = (high + low + close) / 3
+    return {"P": p, "R1": 2 * p - low, "R2": p + (high - low), "S1": 2 * p - high, "S2": p - (high - low)}
+
+
+def pivot_stats(history):
+    """2 年資料中，隔天最高價碰到 R1、R2，最低價碰到 S1、S2 的機率（%）。
+    分成所有股票與「當天大漲 7% 以上」兩組（成交量 ≥ 500 張）。"""
+    series = build_series(history)
+    n = len(history)
+    groups = {"all": [0, {}], "strong": [0, {}]}
+    for t in range(max(1, n - 500), n - 1):
+        for s in series.values():
+            r, nx = s[t], s[t + 1]
+            if not r or not nx or None in (r["high"], r["low"], r["close"], nx["high"], nx["low"]) \
+                    or r["volume"] < 500_000:
+                continue
+            lv = pivot_levels(r["high"], r["low"], r["close"])
+            p = pct_change(r)
+            keys = ["all"] + (["strong"] if p is not None and p >= 7 else [])
+            for g in keys:
+                groups[g][0] += 1
+                for k, v in lv.items():
+                    if k == "P":
+                        continue
+                    if (nx["high"] >= v) if k[0] == "R" else (nx["low"] <= v):
+                        groups[g][1][k] = groups[g][1].get(k, 0) + 1
+    return {g: {k: round(c / tot * 100) for k, c in hits.items()} | {"n": tot}
+            for g, (tot, hits) in groups.items() if tot}
+
+
 def _stats(rs):
     if not rs:
         return None
