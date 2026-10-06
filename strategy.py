@@ -246,7 +246,7 @@ def tomorrow_picks(history, ref, small_cap=10, opt=DEFAULTS, insti=None, exclude
             "成交張數": int(f["volume"] / 1000),
             "股本(億)": round(cap_e, 2) if cap_e is not None else None,
             "強度": rank_score(f, cap_e, small_cap),
-            "理由": reasons, "風險": risks, "計畫": plan,
+            "理由": reasons, "風險": risks, "計畫": plan, "鎖漲停": locked_limit(f),
             "連續上榜": streak(s, t, lambda d: (lambda g: bool(g) and passes(g, opt))(features(s, d))
                                and not (insti_hist and insti_selling(insti_hist[d], code))),
         })
@@ -277,7 +277,12 @@ def held_bars(s, start, n, days):
     return out
 
 
-def simulate(s, t, f, n):
+def locked_limit(f):
+    """訊號日收盤鎖在漲停（漲幅 ≥ 9.5% 且收在最高價）。"""
+    return f["pct"] is not None and f["pct"] >= 9.5 and f["close"] >= f["high"]
+
+
+def simulate(s, t, f, n, chase=False):
     """照操作計畫模擬一筆交易，回傳扣成本後報酬 %；隔天開盤不在進場區間則回傳 None。
     同一天同時碰到停損與目標時，保守假設先碰到停損；一字跌停賣不掉，延到下一個能成交的開盤出場。"""
     lv = levels(f)
@@ -285,7 +290,10 @@ def simulate(s, t, f, n):
     if not nxt or not nxt["open"]:
         return None  # 隔天停止交易或沒有成交
     o = nxt["open"]
-    if not (lv["entry_low"] <= o <= lv["entry_high"]):
+    if chase:  # 研究用：只模擬「開盤跳空高於進場區間、仍照樣追價」的情況
+        if o <= lv["entry_high"]:
+            return None
+    elif not (lv["entry_low"] <= o <= lv["entry_high"]):
         return None
     entry, stop = o, lv["stop"]
     targets = [lv["tp1"], lv["tp2"]]
@@ -332,6 +340,7 @@ def backtest(history, opt=DEFAULTS, insti=None):
     series = build_series(history)
     n = len(history)
     r1, r3, rp = [], [], []
+    by_lock = {k: {"plan": [], "chase": [], "overnight": []} for k in ("locked", "unlocked")}
     signal_days, skipped = set(), 0
     for t in range(20, n - 1):
         for code, s in series.items():
@@ -360,6 +369,14 @@ def backtest(history, opt=DEFAULTS, insti=None):
                 skipped += 1  # 開盤不在進場區間，不買
             else:
                 rp.append(r)
+            # 依訊號日是否收盤鎖漲停，分別比較三種做法
+            g = by_lock["locked" if locked_limit(f) else "unlocked"]
+            if r is not None:
+                g["plan"].append(r)
+            rc = simulate(s, t, f, n, chase=True)
+            if rc is not None:
+                g["chase"].append(rc)
+            g["overnight"].append((nxt["open"] / f["close"] - 1) * 100 - ROUND_TRIP_COST)
 
     def stats(rs):
         if not rs:
@@ -378,6 +395,7 @@ def backtest(history, opt=DEFAULTS, insti=None):
         "hold3": stats(r3),
         "cost": ROUND_TRIP_COST,
         "insti_filter": bool(insti),
+        "by_lock": {k: {m: stats(v) for m, v in g.items()} for k, g in by_lock.items()},
     }
 
 

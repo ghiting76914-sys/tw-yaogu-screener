@@ -33,6 +33,9 @@ CACHE_DIR = os.path.join(BASE_DIR, "data", "cache")
 SITE_URL = os.environ.get("SITE_URL", "https://ghiting76914-sys.github.io/tw-yaogu-screener/")
 MAX_PICKS = 5
 
+# 明日強勢候選依訊號日是否鎖漲停的回測（main() 從資料填入）
+BY_LOCK = None
+
 # 卡片標題；盤中預覽時由 main() 改成「盤中預覽 HH:MM」
 TITLE, ICON = "明日強勢候選", "📈"
 PREVIEW_NOTE = "盤中預覽：成交量已換算成全天預估、尚未排除法人賣超，名單會隨收盤變動；正式名單收盤後推播。"
@@ -121,6 +124,56 @@ def bullets(items, mark, color):
     ]} for it in items]
 
 
+def lock_line(p):
+    if BY_LOCK is None or p.get("鎖漲停") is None:
+        return ""
+    L = BY_LOCK
+    if p["鎖漲停"]:
+        on, ch = L["locked"]["overnight"], L["locked"]["chase"]
+        return (f"🔒 今天收盤鎖漲停：機會在今天收盤前（隔日沖回測 {on['avg']:+.2f}%）"
+                + ("，13:00 已列入隔日沖名單" if p.get("隔日沖名單") else "")
+                + f"。明天開盤追價回測 {ch['avg']:+.2f}%，不建議追。") if on and ch else ""
+    pl = L["unlocked"]["plan"]
+    return f"今天沒有鎖漲停：照計畫進場回測 {pl['avg']:+.2f}%（勝率 {pl['win']}%），僅供觀察。" if pl else ""
+
+
+def top3_bubble(data):
+    """明日精選 3 檔（營收動能＋突破 60 日新高，持有 20 天）。"""
+    rev = data.get("revenue") or {}
+    T, R = rev.get("top3") or {}, rev.get("top3_research") or {}
+    if not T.get("picks"):
+        return None
+    rows = []
+    for p in T["picks"]:
+        rows += [
+            {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
+                text(f"#{p['排名']}", size="sm", weight="bold", color=UP, flex=1),
+                text(f"{p['名稱']} {p['代號']}", size="md", weight="bold", color=INK, flex=6),
+                text(f"{p['收盤']:g}", size="sm", color=INK, flex=3, align="end"),
+            ]},
+            text(" · ".join(p["理由"][:2]), size="xxs", color=MUTED, wrap=True),
+        ]
+    tr, te = R.get("train", {}), R.get("test", {})
+    return {
+        "type": "bubble", "size": "mega",
+        "header": {"type": "box", "layout": "vertical", "backgroundColor": UP, "paddingAll": "16px", "spacing": "xs",
+                   "contents": [text(f"明日精選 · {T['date'][5:].replace('-', '/')}", size="xxs", color="#FFE4E1"),
+                                text("🎯 明天開盤買進 3 檔", size="lg", weight="bold", color="#FFFFFF"),
+                                text(f"持有 {T['hold']} 個交易日（約一個月）", size="xs", color="#FFE4E1")]},
+        "body": {"type": "box", "layout": "vertical", "spacing": "md", "paddingAll": "16px", "contents": [
+            text("營收創 12 個月新高、年增 > 20%、站上季線，今天收盤突破 60 日新高，依成交值前 3。",
+                 size="xs", color=MUTED, wrap=True),
+            {"type": "separator"}, *rows, {"type": "separator"},
+            text(f"📊 11 年回測：持有 20 天平均 {tr.get('avg', 0):+.2f}%～{te.get('avg', 0):+.2f}%，"
+                 f"{R.get('years', '')} 年都贏過大盤；個股勝率約一半，請分散並控制資金。",
+                 size="xxs", color=MUTED, wrap=True),
+        ]},
+        "footer": {"type": "box", "layout": "vertical", "paddingAll": "12px", "contents": [
+            {"type": "button", "style": "primary", "color": UP, "height": "sm",
+             "action": {"type": "uri", "label": "看精選理由與 K 線", "uri": SITE_URL}}]},
+    }
+
+
 def stock_bubble(p, i, n, trade_date):
     lv = p["計畫"]["levels"]
     c = p["收盤"]
@@ -157,6 +210,8 @@ def stock_bubble(p, i, n, trade_date):
                  ]},
                 text("開盤在進場區間才買，盤中跌破停損立即出場；到目標一後停損移到成本價，最多持有 3 天。",
                      size="xxs", color=MUTED, wrap=True),
+                *([text(lock_line(p), size="xs", weight="bold", wrap=True,
+                        color=ACCENT if p.get("鎖漲停") else MUTED)] if lock_line(p) else []),
                 {"type": "separator"},
                 text("為什麼入選", size="sm", weight="bold", color=UP),
                 *bullets(p["理由"][:4], "✓", UP),
@@ -231,11 +286,19 @@ def build_flex(data):
             text("條件刻意設得嚴格，沒有好機會時寧可空手。", size="xs", color=MUTED, wrap=True),
             {"type": "separator"},
         ]
+        top = top3_bubble(data) if TITLE == "明日強勢候選" else None
+        if top:
+            return {"type": "flex", "altText": f"🎯 明日精選 {data['trade_date']}｜明日強勢候選：今天沒有符合條件的股票",
+                    "contents": {"type": "carousel", "contents": [top, bubble]}}
         return {"type": "flex", "altText": f"{TITLE} {data['trade_date']}：目前沒有符合條件的股票",
                 "contents": bubble}
     names = "、".join(p["名稱"] for p in picks)
     bubbles = [stock_bubble(p, i, len(picks), data["trade_date"]) for i, p in enumerate(picks, 1)]
     bubbles.append(summary_bubble(data))
+    top = top3_bubble(data) if TITLE == "明日強勢候選" else None
+    if top:
+        bubbles.insert(0, top)
+        names = "精選 " + "、".join(p["名稱"] for p in data["revenue"]["top3"]["picks"]) + "｜候選 " + names
     return {"type": "flex", "altText": f"{ICON} {TITLE} {data['trade_date']}：{names}"[:400],
             "contents": {"type": "carousel", "contents": bubbles}}
 
@@ -399,7 +462,8 @@ def main():
 
     with open(LATEST, encoding="utf-8") as fh:
         data = json.load(fh)
-    global TITLE, ICON
+    global TITLE, ICON, BY_LOCK
+    BY_LOCK = (data.get("backtest") or {}).get("by_lock")
     live = data.get("live")
     preview = bool(live and not live.get("final"))
     if preview:

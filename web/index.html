@@ -855,6 +855,7 @@ function renderPicks() {
     <p class="verdict">${verdict}</p>
     <p>回測期間 ${bt.from} ～ ${bt.to}（${bt.signal_days} 個交易日有訊號）。規則：隔天開盤落在進場區間才買（${bt.skipped_gap} 筆因開盤不在區間而略過）；盤中跌破停損出場；到目標一先賣一半、停損移到成本，到目標二全部出場；最多持有 3 天。已扣手續費與證交稅 ${bt.cost}%。對照：隔日開盤買、持有 1 日平均 ${val(bt.hold1 && bt.hold1.avg)}；持有 3 日不設停損停利平均 ${val(bt.hold3 && bt.hold3.avg)}、最差 ${val(bt.hold3 && bt.hold3.worst)}。</p>
     ${liveNote}
+    ${lockSummary(bt)}
     <p class="research">📚 2 年研究（2024/08～2026/10，前 1.5 年找條件、最後半年驗證，共 1,446 筆交易）：這套規則跟同期間隨便買幾乎沒有差別，沒有任何條件能讓訓練期轉為正報酬。唯一在兩段期間都成立的，是「三大法人賣超的訊號明顯較差」（平均 -1.6% 與 -1.2%），所以已經排除。</p>
   </div>`;
 
@@ -871,6 +872,7 @@ function renderPicks() {
         <span class="strength">強度 <span class="bar"><i style="width:${p["強度"]}%"></i></span><b class="num" style="color:var(--text)">${p["強度"]}</b></span>
         <span class="px num"><b class="${p["漲跌%"] > 0 ? "up" : "down"}">${fmt(p["收盤"])}</b> ${pct(p["漲跌%"])}%</span>
       </div>
+      ${lockNote(p, bt)}
       ${ladder(p)}
       <div class="pick-cols">
         <div>
@@ -891,6 +893,28 @@ function renderPicks() {
         </div>
       </div>
     </article>`).join("") + prevTable("picks");
+}
+
+// 明日強勢候選：依訊號日是否收盤鎖漲停，提醒該怎麼做
+function lockSummary(bt) {
+  const L = bt && bt.by_lock;
+  if (!L) return "";
+  const v = (x) => x ? `${pct(x.avg)}%（勝率 ${x.win}%）` : "–";
+  return `<div class="filter-note ok" style="margin-top:10px">
+    📌 <b>想隔天買進的話，請看最上方的「明日精選 3 檔」</b>（11 年都贏過大盤）。這份名單本身隔天才進場沒有優勢：<br>
+    ・<b>收盤鎖漲停</b>的股票：今天收盤前買、明天開盤賣（隔日沖）${v(L.locked.overnight)}；明天開盤在區間內才買 ${v(L.locked.plan)}；明天開高照追 ${v(L.locked.chase)}<br>
+    ・<b>沒有鎖漲停</b>的股票：照計畫進場 ${v(L.unlocked.plan)}，僅供觀察<br>
+    <span class="muted" style="font-size:12px">（2 年回測、已扣成本。鎖漲停的股票收盤前委買排隊，實際上不一定買得到。）</span>
+  </div>`;
+}
+
+function lockNote(p, bt) {
+  const L = bt && bt.by_lock;
+  if (p["鎖漲停"] == null || !L) return "";
+  const v = (x) => x ? `${pct(x.avg)}%` : "–";
+  return p["鎖漲停"]
+    ? `<p class="filter-note bad" style="margin:12px 0 0">🔒 <b>今天收盤鎖漲停</b>：這類股票的機會在<b>今天收盤前</b>（隔日沖，回測 ${v(L.locked.overnight)}，勝率 ${L.locked.overnight ? L.locked.overnight.win : "–"}%）${p["隔日沖名單"] ? "，今天 13:00 已列入隔日沖名單" : ""}。明天開盤追價回測 ${v(L.locked.chase)}，<b>不建議追</b>。</p>`
+    : `<p class="filter-note" style="margin:12px 0 0">今天沒有鎖漲停：這類股票照計畫進場，回測平均 ${v(L.unlocked.plan)}（勝率 ${L.unlocked.plan ? L.unlocked.plan.win : "–"}%），<b>僅供觀察</b>。</p>`;
 }
 
 function ladder(p) {
