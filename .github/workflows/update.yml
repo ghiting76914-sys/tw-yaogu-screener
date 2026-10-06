@@ -76,6 +76,10 @@ jobs:
             echo "補齊後有 $(ls data/cache/twse_*.json | wc -l) 個交易日的行情檔"
           fi
 
+      # 實際績效需要每日名單存檔；快取被清掉時從已發佈網站的備份補回
+      - name: 補回每日名單存檔
+        run: python scripts/restore_snapshots.py
+
       - name: 篩選並產生網站
         # 盤中預覽：手動勾選，或 13:00 的排程；若官方收盤資料已公布，仍會使用官方資料
         run: python export_site.py ${{ (inputs.preview || github.event.schedule == '0 5 * * 1-5') && '--preview' || '' }}

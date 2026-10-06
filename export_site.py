@@ -41,7 +41,15 @@ def main():
     html = html.replace("<script>\nconst $", "<script>window.STATIC_SITE = true;</script>\n<script>\nconst $", 1)
     with open(os.path.join(SITE_DIR, "index.html"), "w", encoding="utf-8") as fh:
         fh.write(html)
-    for name, obj in (("latest.json", data), ("charts.json", charts)):
+    # 每日名單存檔的備份（實際績效需要，且無法重新產生）；快取被清掉時由 scripts/restore_snapshots.py 補回
+    import snapshots
+    archive = {}
+    if os.path.isdir(snapshots.SNAP_DIR):
+        for name in sorted(os.listdir(snapshots.SNAP_DIR)):
+            if name.endswith(".json"):
+                with open(os.path.join(snapshots.SNAP_DIR, name), encoding="utf-8") as fh:
+                    archive[name] = json.load(fh)
+    for name, obj in (("latest.json", data), ("charts.json", charts), ("snapshots.json", archive)):
         with open(os.path.join(SITE_DIR, "data", name), "w", encoding="utf-8") as fh:
             json.dump(obj, fh, ensure_ascii=False, separators=(",", ":"))
     open(os.path.join(SITE_DIR, ".nojekyll"), "w").close()
