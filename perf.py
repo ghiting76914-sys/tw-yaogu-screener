@@ -73,7 +73,7 @@ def compute(history):
         return {"日期": sig_date, "代號": code, "名稱": name, "進場": entry, "出場": bars[-1][1]["close"],
                 "報酬%": round(ret, 2), "狀態": "已出場" if closed else "持有中", "天數": len(bars)}
 
-    top3, overnight, rev = [], [], []
+    top3, overnight, overnight_limit, rev = [], [], [], []
     for s in _snaps():
         d = s["trade_date"]
         if s["mode"] == "final":
@@ -93,8 +93,14 @@ def compute(history):
                 overnight.append({"日期": d, "代號": p["代號"], "名稱": p["名稱"], "進場": p["價格"], "出場": sell,
                                   "報酬%": round((sell / p["價格"] - 1) * 100 - COST, 2) if sell and p["價格"] else None,
                                   "狀態": "已出場" if sell else "等待隔天開盤", "天數": 1 if sell else 0})
+                # 另一種賣法：隔天掛 +2% 限價，沒成交收盤賣
+                lim = strategy.limit_sell_fill(p["價格"], b["open"], b["high"], b["close"]) \
+                    if b and p["價格"] and b.get("high") is not None else None
+                overnight_limit.append({"日期": d, "代號": p["代號"], "名稱": p["名稱"], "進場": p["價格"], "出場": lim,
+                                        "報酬%": round((lim / p["價格"] - 1) * 100 - COST, 2) if lim else None,
+                                        "狀態": "已出場" if lim else "等待隔天", "天數": 1 if lim else 0})
     out = {}
-    for key, trades in (("top3", top3), ("overnight", overnight), ("revenue", rev)):
+    for key, trades in (("top3", top3), ("overnight", overnight), ("overnight_limit", overnight_limit), ("revenue", rev)):
         trades.sort(key=lambda x: (x["日期"], x["代號"]), reverse=True)
         out[key] = {"summary": _summary(trades), "trades": trades}
     out["since"] = min((s["trade_date"] for s in _snaps()), default=None)

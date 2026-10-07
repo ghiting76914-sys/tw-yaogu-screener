@@ -749,7 +749,27 @@ OVERNIGHT_RESEARCH = {
     "period": "2015/04～2026/10", "train": {"win": 49.9, "avg": 0.17}, "test": {"win": 50.7, "avg": 0.26},
     "locked": "收盤鎖住漲停：隔天開盤平均 +1.6～2.0%、勝率約 70%（但收盤前通常買不到）",
     "opened": "漲停被打開：隔天開盤平均 -0.9%、勝率約 30%",
+    # research/overnight_exit.py：隔天不同賣法（訓練／驗證，已扣成本）
+    "exit_open": {"train": {"win": 50.8, "avg": 0.36}, "test": {"win": 51.4, "avg": 0.42}},
+    "exit_limit": {"train": {"win": 61.1, "avg": 0.19}, "test": {"win": 62.3, "avg": 0.23}},
 }
+LIMIT_SELL_PCT = 2  # 另一種賣法：隔天掛 +2% 限價賣出，沒成交就收盤賣
+
+
+def tick_ceil(price):
+    """依台股升降單位，取不低於 price 的有效價格。"""
+    f = tick_floor(price)
+    return f if f >= price - 1e-9 else tick_up(f)
+
+
+def limit_sell_price(buy):
+    return tick_ceil(buy * (1 + LIMIT_SELL_PCT / 100))
+
+
+def limit_sell_fill(buy, o, h, c):
+    """隔天掛 +2% 限價：開盤就超過用開盤價、盤中碰到用限價，沒碰到收盤賣。"""
+    tgt = limit_sell_price(buy)
+    return o if o >= tgt else tgt if h >= tgt else c
 
 
 def _overnight_check(s, t):
@@ -801,6 +821,7 @@ def overnight_picks(history, ref):
             "代號": code, "名稱": r["name"], "市場": r["market"], "現價": r["close"],
             "漲跌%": round(f["pct"], 2), "開盤%": round(f["open_pct"], 2),
             "漲停價": tick_floor(f["prev"] * 1.1), "已漲停": f["limit"],
+            "限價賣出": limit_sell_price(r["close"]),
             "量比": round(f["vol_ratio"], 2) if f["vol_ratio"] else None,
             "理由": reasons, "風險": risks,
         })

@@ -1082,6 +1082,8 @@ function renderPerf() {
       `每筆平均 ${pct(T3.train ? T3.train.avg : null)}%～${pct(T3.test ? T3.test.avg : null)}%，勝率約 ${T3.test ? T3.test.win : "–"}～${T3.train ? T3.train.win : "–"}%（11 年、停損 -10%）`)}
     ${block("overnight", "⚡ 隔日沖", "13:00 名單當時的價格買進，隔天開盤賣出（已漲停排隊中的實際上可能買不到）。",
       `每筆平均 ${pct(O.train ? O.train.avg : null)}%～${pct(O.test ? O.test.avg : null)}%，勝率約 ${O.train ? O.train.win : "–"}～${O.test ? O.test.win : "–"}%（11 年）`)}
+    ${block("overnight_limit", "⚡ 隔日沖（掛 +2% 限價賣）", "同一份名單，隔天掛買進價 +2% 的限價單，盤中碰到就賣、沒碰到收盤賣。",
+      `每筆平均 ${pct(O.exit_limit ? O.exit_limit.train.avg : null)}%～${pct(O.exit_limit ? O.exit_limit.test.avg : null)}%，勝率約 ${O.exit_limit ? O.exit_limit.train.win : "–"}～${O.exit_limit ? O.exit_limit.test.win : "–"}%（11 年）`)}
     ${block("revenue", "📊 營收動能", "換股隔天開盤平均買進 20 檔，持有 20 個交易日。",
       `${R.months || "–"} 個月中 ${R.beat || "–"} 個月贏過大盤，平均每月多 ${pct(R.excess)}%（11 年）`)}
     ${allocation()}`;
@@ -1186,6 +1188,7 @@ function renderOvernight() {
       <td class="num col-opt">${pct(p["開盤%"], 1)}%</td>
       <td class="num">${p["量比"] == null ? "–" : fmt(p["量比"])}</td>
       <td class="num col-opt">${fmt(p["漲停價"])}</td>
+      <td class="num">${p["限價賣出"] == null ? "–" : fmt(p["限價賣出"])}</td>
       <td class="l">${p["已漲停"] ? '<span class="chip sm amber">已漲停・排隊中</span>' : '<span class="chip sm blue">未漲停</span>'}</td>
     </tr>`).join("");
   $("overnightView").innerHTML = `
@@ -1195,7 +1198,9 @@ function renderOvernight() {
       ${status}
       <dl class="plan" style="margin-top:10px">
         <dt>進場</dt><dd>收盤前買進，不要追高於漲停價；已漲停的股票委買排隊中，可能買不到</dd>
-        <dt>出場</dt><dd><b>明天開盤一律賣出</b>。回測中抱到隔天收盤的結果明顯較差</dd>
+        <dt>出場</dt><dd>兩種賣法擇一：<b>① 明天開盤直接賣</b>（11 年平均 ${pct(R.exit_open.train.avg)}%～${pct(R.exit_open.test.avg)}%、勝率約 ${R.exit_open.test.win}%，平均賺最多）；
+          <b>② 掛「+2% 限價賣」</b>，盤中碰到就成交、沒碰到收盤前賣（平均 ${pct(R.exit_limit.train.avg)}%～${pct(R.exit_limit.test.avg)}%、勝率約 ${R.exit_limit.train.win}～${R.exit_limit.test.win}%，勝率高但平均較少）。
+          表中限價以現價計算，實際請用自己的買進價 × 1.02。不建議什麼都不做抱到收盤（平均虧損）</dd>
         <dt>風險</dt><dd>收盤若沒鎖住漲停，隔天開盤平均是虧損（${esc(R.opened)}）</dd>
       </dl>
       ${h ? `<div class="bt">
@@ -1209,7 +1214,7 @@ function renderOvernight() {
     <div class="card" style="margin-top:12px">
       <div class="table-wrap" style="max-height:none">
         <table>
-          <thead><tr><th>#</th><th class="l">股票</th><th>現價</th><th>漲幅</th><th class="col-opt">開盤</th><th>量比</th><th class="col-opt">漲停價</th><th class="l">狀態</th></tr></thead>
+          <thead><tr><th>#</th><th class="l">股票</th><th>現價</th><th>漲幅</th><th class="col-opt">開盤</th><th>量比</th><th class="col-opt">漲停價</th><th title="以現價計算；實際請用自己的買進價 × 1.02">+2% 限價賣</th><th class="l">狀態</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
         ${d.overnight.length ? "" : `<div class="empty">目前沒有符合條件的股票。</div>`}
