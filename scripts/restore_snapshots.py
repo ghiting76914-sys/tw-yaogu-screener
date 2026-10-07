@@ -17,7 +17,7 @@ try:
         archive = json.loads(resp.read())
 except Exception as e:
     print(f"無法取得線上存檔備份：{e}")
-    sys.exit(0)
+    archive = {}
 os.makedirs(SNAP_DIR, exist_ok=True)
 added = 0
 for name, snap in archive.items():
@@ -27,3 +27,12 @@ for name, snap in archive.items():
             json.dump(snap, fh, ensure_ascii=False)
         added += 1
 print(f"線上備份共 {len(archive)} 個存檔，補回 {added} 個")
+
+# 手動補登的存檔（例如存檔功能上線前已推播的名單），放在 scripts/snapshot_seed/，已有的不覆蓋
+SEED_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "snapshot_seed")
+for name in sorted(os.listdir(SEED_DIR)) if os.path.isdir(SEED_DIR) else []:
+    path = os.path.join(SNAP_DIR, name)
+    if name.endswith(".json") and not os.path.exists(path):
+        with open(os.path.join(SEED_DIR, name), encoding="utf-8") as src, open(path, "w", encoding="utf-8") as fh:
+            fh.write(src.read())
+        print(f"補登手動存檔 {name}")
