@@ -1182,7 +1182,7 @@ function renderOvernight() {
   const rows = d.overnight.map((p, i) => `
     <tr data-code="${p["代號"]}" class="${p["代號"] === state.selected ? "sel" : ""}">
       <td class="num">${i + 1}</td>
-      <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span></td>
+      <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span>${p["起漲第1根"] ? ' <span class="chip sm amber" title="前 20 天盤整後首度放量大漲">★ 起漲第1根</span>' : ""}</td>
       <td class="num">${fmt(p["現價"])}</td>
       <td class="num">${pct(p["漲跌%"])}%</td>
       <td class="num col-opt">${pct(p["開盤%"], 1)}%</td>
@@ -1201,6 +1201,7 @@ function renderOvernight() {
         <dt>出場</dt><dd>兩種賣法擇一：<b>① 明天開盤直接賣</b>（11 年平均 ${pct(R.exit_open.train.avg)}%～${pct(R.exit_open.test.avg)}%、勝率約 ${R.exit_open.test.win}%，平均賺最多）；
           <b>② 掛「+2% 限價賣」</b>，盤中碰到就成交、沒碰到收盤前賣（平均 ${pct(R.exit_limit.train.avg)}%～${pct(R.exit_limit.test.avg)}%、勝率約 ${R.exit_limit.train.win}～${R.exit_limit.test.win}%，勝率高但平均較少）。
           表中限價以現價計算，實際請用自己的買進價 × 1.02。不建議什麼都不做抱到收盤（平均虧損）</dd>
+        ${R.first_bar ? `<dt>★ 起漲第1根</dt><dd>前 20 天盤整（波動 ≤ 15%、沒有任何一天漲 ≥ 5%），今天放量 2 倍以上首度大漲，排在最前面。11 年回測隔天開盤賣：平均 ${pct(R.first_bar.train.avg)}%／${pct(R.first_bar.test.avg)}%（訓練／驗證），其他股票 ${pct(R.not_first.train.avg)}%／${pct(R.not_first.test.avg)}%；續抱 5～20 天則沒有優勢</dd>` : ""}
         <dt>風險</dt><dd>收盤若沒鎖住漲停，隔天開盤平均是虧損（${esc(R.opened)}）</dd>
       </dl>
       ${h ? `<div class="bt">

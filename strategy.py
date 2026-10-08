@@ -752,7 +752,22 @@ OVERNIGHT_RESEARCH = {
     # research/overnight_exit.py：隔天不同賣法（訓練／驗證，已扣成本）
     "exit_open": {"train": {"win": 50.8, "avg": 0.36}, "test": {"win": 51.4, "avg": 0.42}},
     "exit_limit": {"train": {"win": 61.1, "avg": 0.19}, "test": {"win": 62.3, "avg": 0.23}},
+    # research/first_bar.py：同樣 20 日均量 ≥ 500 張的股票中，起漲第 1 根 vs 其他（隔天開盤賣）
+    "first_bar": {"train": {"win": 53.1, "avg": 0.54}, "test": {"win": 49.9, "avg": 0.42}},
+    "not_first": {"train": {"win": 48.7, "avg": -0.02}, "test": {"win": 50.5, "avg": 0.13}},
 }
+
+
+def is_first_bar(past, vol_ratio, vol20):
+    """起漲第 1 根：前 20 天盤整（收盤最高 ÷ 最低 ≤ 1.15、沒有任何一天漲 ≥ 5%），今天量 ≥ 20 日均量 2 倍。
+    與研究相同，只限 20 日均量 ≥ 500 張的股票。"""
+    base = [x for x in past[-20:] if x["close"] is not None and x["change"] is not None]
+    if len(base) < 20 or not vol_ratio or vol_ratio < 2 or vol20 < 500_000:
+        return False
+    closes = [x["close"] for x in base]
+    if max(closes) / min(closes) > 1.15:
+        return False
+    return not any(x["close"] - x["change"] > 0 and x["change"] / (x["close"] - x["change"]) >= 0.05 for x in base)
 LIMIT_SELL_PCT = 2  # 另一種賣法：隔天掛 +2% 限價賣出，沒成交就收盤賣
 
 
@@ -791,8 +806,9 @@ def _overnight_check(s, t):
     if r["high"] < prior_high * OVERNIGHT["near_high"]:
         return None
     vol20 = sum(x["volume"] for x in past[-20:]) / 20
+    vol_ratio = r["volume"] / vol20 if vol20 else None
     return {"pct": pct, "open_pct": open_pct, "prev": prev, "prior_high": prior_high,
-            "vol_ratio": r["volume"] / vol20 if vol20 else None, "limit": pct >= 9.5}
+            "vol_ratio": vol_ratio, "limit": pct >= 9.5, "first": is_first_bar(past, vol_ratio, vol20)}
 
 
 def overnight_picks(history, ref):
@@ -806,7 +822,8 @@ def overnight_picks(history, ref):
         if not f:
             continue
         r = s[t]
-        reasons = [
+        reasons = ([f"★ 起漲第 1 根：前 20 天盤整（波動 ≤ 15%、沒有大漲），今天放量 {f['vol_ratio']:.1f} 倍首度大漲；"
+                    "11 年回測這類隔日沖平均明顯較好"] if f["first"] else []) + [
             f"開盤 {f['open_pct']:+.1f}%，盤中漲到 {f['pct']:+.1f}%，買盤持續推升",
             f"今日最高 {r['high']:g}，{'突破' if r['high'] > f['prior_high'] else '接近'}前 60 日高點 {f['prior_high']:g}",
         ]
@@ -821,12 +838,13 @@ def overnight_picks(history, ref):
             "代號": code, "名稱": r["name"], "市場": r["market"], "現價": r["close"],
             "漲跌%": round(f["pct"], 2), "開盤%": round(f["open_pct"], 2),
             "漲停價": tick_floor(f["prev"] * 1.1), "已漲停": f["limit"],
-            "限價賣出": limit_sell_price(r["close"]),
+            "限價賣出": limit_sell_price(r["close"]), "起漲第1根": f["first"],
             "量比": round(f["vol_ratio"], 2) if f["vol_ratio"] else None,
             "理由": reasons, "風險": risks,
         })
     # 越接近漲停排越前面（收盤鎖住漲停的隔天表現最好），同漲幅依量比
-    out.sort(key=lambda p: (p["漲跌%"], p["量比"] or 0), reverse=True)
+    # 起漲第 1 根排最前面（11 年回測較好），其餘越接近漲停排越前面
+    out.sort(key=lambda p: (p["起漲第1根"], p["漲跌%"], p["量比"] or 0), reverse=True)
     return out[:OVERNIGHT["top"]]
 
 
