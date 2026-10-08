@@ -856,7 +856,7 @@ async function select(code) {
 // ---------------------------------------------------------------- 盤中到價提醒（網頁通知）
 // 靜態網站無法直接讀證交所即時行情（沒有開放跨網域），透過自己的 Cloudflare Worker 轉接（cloudflare/worker.js）；
 // 盤中每 30 秒查一次所有監看中的股票，到價時跳出瀏覽器通知與提示音，每個價位每天只提醒一次。
-const ALERT_WORKER = "";  // Cloudflare Worker 網址，例如 https://yaogu-quote.xxx.workers.dev
+const ALERT_WORKER = "https://yaogu-quote.ghiting76914.workers.dev/";  // Cloudflare Worker（帳號 Ghiting76914）
 const alertState = { timer: null, targets: [], prices: {}, last: null, error: null };
 
 function twNow() {
@@ -908,6 +908,13 @@ function alertTargets() {
 }
 
 async function alertFetch(codes) {
+  try { return await alertFetchOnce(codes); } catch (e) {  // 偶爾連線失敗（Cloudflare 520 等），2 秒後再試一次
+    await new Promise((r) => setTimeout(r, 2000));
+    return alertFetchOnce(codes);
+  }
+}
+
+async function alertFetchOnce(codes) {
   const ex = codes.flatMap((c) => c === "0050" ? [`tse_${c}.tw`] : [`tse_${c}.tw`, `otc_${c}.tw`]).join("|");
   const url = STATIC ? `${ALERT_WORKER}?ex_ch=${encodeURIComponent(ex)}` : `/api/mis?ex_ch=${encodeURIComponent(ex)}`;
   const ctrl = new AbortController();
