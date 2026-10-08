@@ -35,6 +35,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: write   # 保持排程啟用（見「保持自動更新啟用」）
 
 concurrency:
   group: pages
@@ -96,6 +97,13 @@ jobs:
           # cron-job.org 用的 GitHub 金鑰到期日；重新產生後請一併更新這裡
           CRON_TOKEN_EXPIRES: "2027-10-03"
         run: python notify_line.py ${{ inputs.force_line && '--force' || '' }} ${{ inputs.revenue_test && '--revenue-test' || '' }}
+
+      # 公開 repo 60 天沒有程式更新時，GitHub 會自動停用排程；每次執行都重新啟用一次，計時就會重來
+      - name: 保持自動更新啟用
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method PUT "repos/${{ github.repository }}/actions/workflows/update.yml/enable" && echo "已重新啟用排程"
 
       - name: 儲存行情快取
         if: always()
