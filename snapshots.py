@@ -3,7 +3,7 @@
 每次產生網站時，把當天各分頁的名單與當時價格存到 data/cache/snapshots/{交易日}_{final|preview}.json
 （GitHub Actions 會連同行情快取一起保存）。隔天在每個分頁顯示前一交易日的名單，並用今天的價格對照表現：
 
-  隔日沖        前一天 13:00 的價格買進 → 今天開盤賣出
+  隔日沖        前一天 12:30 的價格買進 → 今天開盤賣出
   明日強勢候選  今天開盤是否在進場區間、開盤到收盤的漲跌
   起漲前夕      今天是否漲過突破價
   明日精選 3 檔 今天開盤買進 → 今天收盤
@@ -26,7 +26,7 @@ def _slim(lst, extra=()):
 
 
 def save(data):
-    """存下當天名單。盤中（13:00 隔日沖）與收盤後分開存。"""
+    """存下當天名單。盤中（12:30 隔日沖）與收盤後分開存。"""
     live = data.get("live")
     mode = "preview" if live and not live.get("final") else "final"
     rev = data.get("revenue") or {}
@@ -45,7 +45,7 @@ def save(data):
     os.makedirs(SNAP_DIR, exist_ok=True)
     path = os.path.join(SNAP_DIR, f"{data['trade_date']}_{mode}.json")
     if mode == "preview" and os.path.exists(path):
-        return  # 盤中名單只保留當天第一次（13:00 推播的那份），之後的更新不覆蓋
+        return  # 盤中名單只保留當天第一次（12:30 推播的那份），之後的更新不覆蓋
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(snap, fh, ensure_ascii=False)
 
@@ -84,7 +84,7 @@ def previous(history, recompute):
         r = today.get(code)
         return (r["open"], r["close"], r["high"]) if r and r["close"] is not None else (None, None, None)
 
-    # 隔日沖：前一天盤中名單（13:00）買進價 → 今天開盤賣
+    # 隔日沖：前一天盤中名單（12:30）買進價 → 今天開盤賣
     rows = []
     for p in lists("overnight", preview or final):
         o, c, _ = px(p["代號"])

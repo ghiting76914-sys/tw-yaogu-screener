@@ -55,7 +55,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         # 另外算出完整明細（分數、漲幅、週轉率等），讓右側明細不缺欄位
         rev = _revenue_summary(history)
         overnight = strategy.overnight_picks(history, res["ref"])
-        # 明日強勢候選中，今天 13:00 隔日沖名單也有的股票（盤中執行時就用當下的名單）
+        # 明日強勢候選中，今天 12:30 隔日沖名單也有的股票（盤中執行時就用當下的名單）
         snap = snapshots._load(trade_date.isoformat(), "preview")
         on_codes = {p["代號"] for p in (snap or {}).get("overnight", [])} | (
             {p["代號"] for p in overnight} if res["live"] and not res["live"]["final"] else set())

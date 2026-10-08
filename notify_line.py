@@ -132,7 +132,7 @@ def lock_line(p):
     if p["鎖漲停"]:
         on, ch = L["locked"]["overnight"], L["locked"]["chase"]
         return (f"🔒 今天收盤鎖漲停：機會在今天收盤前（隔日沖回測 {on['avg']:+.2f}%）"
-                + ("，13:00 已列入隔日沖名單" if p.get("隔日沖名單") else "")
+                + ("，12:30 已列入隔日沖名單" if p.get("隔日沖名單") else "")
                 + f"。明天開盤追價回測 {ch['avg']:+.2f}%，不建議追。") if on and ch else ""
     pl = L["unlocked"]["plan"]
     return f"今天沒有鎖漲停：照計畫進場回測 {pl['avg']:+.2f}%（勝率 {pl['win']}%），僅供觀察。" if pl else ""
@@ -385,7 +385,7 @@ def quota_report(token):
         return f"查詢額度失敗：{e}"
 
 
-# ---------------------------------------------------------------- 隔日沖（13:00 盤中推播）
+# ---------------------------------------------------------------- 隔日沖（12:30 盤中推播）
 
 def build_overnight_flex(data):
     picks = data.get("overnight") or []

@@ -949,7 +949,7 @@ function lockNote(p, bt) {
   if (p["鎖漲停"] == null || !L) return "";
   const v = (x) => x ? `${pct(x.avg)}%` : "–";
   return p["鎖漲停"]
-    ? `<p class="filter-note bad" style="margin:12px 0 0">🔒 <b>今天收盤鎖漲停</b>：這類股票的機會在<b>今天收盤前</b>（隔日沖，回測 ${v(L.locked.overnight)}，勝率 ${L.locked.overnight ? L.locked.overnight.win : "–"}%）${p["隔日沖名單"] ? "，今天 13:00 已列入隔日沖名單" : ""}。明天開盤追價回測 ${v(L.locked.chase)}，<b>不建議追</b>。</p>`
+    ? `<p class="filter-note bad" style="margin:12px 0 0">🔒 <b>今天收盤鎖漲停</b>：這類股票的機會在<b>今天收盤前</b>（隔日沖，回測 ${v(L.locked.overnight)}，勝率 ${L.locked.overnight ? L.locked.overnight.win : "–"}%）${p["隔日沖名單"] ? "，今天 12:30 已列入隔日沖名單" : ""}。明天開盤追價回測 ${v(L.locked.chase)}，<b>不建議追</b>。</p>`
     : `<p class="filter-note" style="margin:12px 0 0">今天沒有鎖漲停：這類股票照計畫進場，回測平均 ${v(L.unlocked.plan)}（勝率 ${L.unlocked.plan ? L.unlocked.plan.win : "–"}%），<b>僅供觀察</b>。</p>`;
 }
 
@@ -1080,7 +1080,7 @@ function renderPerf() {
     </div>
     ${block("top3", "🎯 明日精選 3 檔", "選出隔天開盤買進，持有 20 個交易日後收盤賣出；盤中跌破進場價 -10% 就停損。",
       `每筆平均 ${pct(T3.train ? T3.train.avg : null)}%～${pct(T3.test ? T3.test.avg : null)}%，勝率約 ${T3.test ? T3.test.win : "–"}～${T3.train ? T3.train.win : "–"}%（11 年、停損 -10%）`)}
-    ${block("overnight", "⚡ 隔日沖", "13:00 名單當時的價格買進，隔天開盤賣出（已漲停排隊中的實際上可能買不到）。",
+    ${block("overnight", "⚡ 隔日沖", "12:30 名單當時的價格買進，隔天開盤賣出（已漲停排隊中的實際上可能買不到）。",
       `每筆平均 ${pct(O.train ? O.train.avg : null)}%～${pct(O.test ? O.test.avg : null)}%，勝率約 ${O.train ? O.train.win : "–"}～${O.test ? O.test.win : "–"}%（11 年）`)}
     ${block("overnight_limit", "⚡ 隔日沖（掛 +2% 限價賣）", "同一份名單，隔天掛買進價 +2% 的限價單，盤中碰到就賣、沒碰到收盤賣。",
       `每筆平均 ${pct(O.exit_limit ? O.exit_limit.train.avg : null)}%～${pct(O.exit_limit ? O.exit_limit.test.avg : null)}%，勝率約 ${O.exit_limit ? O.exit_limit.train.win : "–"}～${O.exit_limit ? O.exit_limit.test.win : "–"}%（11 年）`)}
@@ -1178,7 +1178,7 @@ function renderOvernight() {
   const intraday = d.live && !d.live.final;
   const status = intraday
     ? `<p class="filter-note ok"><b>盤中名單（${esc(d.live.time.slice(0, 5))}）</b>：收盤前買進、明天開盤賣出。成交量已換算成全天預估。</p>`
-    : `<p class="filter-note bad">目前是收盤後的資料，<b>今天的隔日沖機會已經過了</b>（要在收盤前買進）。以下是收盤後符合條件的股票，僅供參考；每個交易日 13:00 會更新盤中名單並推播 LINE。</p>`;
+    : `<p class="filter-note bad">目前是收盤後的資料，<b>今天的隔日沖機會已經過了</b>（要在收盤前買進）。以下是收盤後符合條件的股票，僅供參考；每個交易日 12:30 會更新盤中名單並推播 LINE。</p>`;
   const rows = d.overnight.map((p, i) => `
     <tr data-code="${p["代號"]}" class="${p["代號"] === state.selected ? "sel" : ""}">
       <td class="num">${i + 1}</td>

@@ -4,8 +4,8 @@ on:
   schedule:
     # GitHub 用 UTC 時間。GitHub 排程忙碌時可能延遲或被略過，所以安排多次；
     # 網站更新可重複執行，LINE 同一交易日只發送一次。
-    # 台灣時間 13:00（盤中預覽，隔日沖推播）
-    - cron: "0 5 * * 1-5"
+    # 台灣時間 12:30（盤中預覽，隔日沖推播）
+    - cron: "30 4 * * 1-5"
     # 台灣時間 15:40、16:20、17:10、18:30、20:15（收盤後正式版）
     - cron: "40 7 * * 1-5"
     - cron: "20 8 * * 1-5"
@@ -23,7 +23,7 @@ on:
         type: boolean
         default: false
       preview:
-        description: "盤中預覽：用證交所即時行情當作今天（13:00 執行，推播隔日沖）"
+        description: "盤中預覽：用證交所即時行情當作今天（12:30 執行，推播隔日沖）"
         type: boolean
         default: false
       skip_line:
@@ -81,8 +81,8 @@ jobs:
         run: python scripts/restore_snapshots.py
 
       - name: 篩選並產生網站
-        # 盤中預覽：手動勾選，或 13:00 的排程；若官方收盤資料已公布，仍會使用官方資料
-        run: python export_site.py ${{ (inputs.preview || github.event.schedule == '0 5 * * 1-5') && '--preview' || '' }}
+        # 盤中預覽：手動勾選，或 12:30 的排程；若官方收盤資料已公布，仍會使用官方資料
+        run: python export_site.py ${{ (inputs.preview || github.event.schedule == '30 4 * * 1-5') && '--preview' || '' }}
 
       # 未設定 LINE 金鑰時會自動略過；同一交易日只發送一次
       - name: 傳送明日強勢候選到 LINE
