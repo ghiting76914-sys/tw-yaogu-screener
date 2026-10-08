@@ -1370,10 +1370,21 @@ function renderOvernight() {
   const status = intraday
     ? `<p class="filter-note ok"><b>盤中名單（${esc(d.live.time.slice(0, 5))}）</b>：收盤前買進、明天開盤賣出。成交量已換算成全天預估。</p>`
     : `<p class="filter-note bad">目前是收盤後的資料，<b>今天的隔日沖機會已經過了</b>（要在收盤前買進）。以下是收盤後符合條件的股票，僅供參考；每個交易日 12:30 會更新盤中名單並推播 LINE。</p>`;
+  // 今天推播（實際績效計算用）的名單，與目前名單不同時列出差異
+  const pushed = d.overnight_pushed;
+  const pushedCodes = new Set(pushed ? pushed.list.map((p) => p["代號"]) : []);
+  const nowCodes = new Set(d.overnight.map((p) => p["代號"]));
+  const dropped = pushed ? pushed.list.filter((p) => !nowCodes.has(p["代號"])) : [];
+  const added = pushed ? d.overnight.filter((p) => !pushedCodes.has(p["代號"])) : [];
+  const pushedNote = pushed && pushed.list.length && (dropped.length || added.length || !intraday)
+    ? `<p class="filter-note ok">📌 <b>今天 ${esc((pushed.time || "").slice(0, 5))} 推播的名單</b>（實際績效以這份、推播當時的價格計算）：${pushed.list.map((p) => `${esc(p["名稱"])} ${fmt(p["價格"])}`).join("、")}。
+        ${dropped.length ? `<br>已不在目前名單：${dropped.map((p) => esc(p["名稱"])).join("、")}（多半是漲停打開或漲幅縮小）。` : ""}
+        ${added.length ? `<br>推播後才加入：${added.map((p) => esc(p["名稱"])).join("、")}。` : ""}
+        下表中標「已推播」的為推播名單內的股票。</p>` : "";
   const rows = d.overnight.map((p, i) => `
     <tr data-code="${p["代號"]}" class="${p["代號"] === state.selected ? "sel" : ""}">
       <td class="num">${i + 1}</td>
-      <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span>${p["起漲第1根"] ? ' <span class="chip sm amber" title="前 20 天盤整後首度放量大漲">★ 起漲第1根</span>' : ""}</td>
+      <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span>${pushed && pushedCodes.has(p["代號"]) ? ' <span class="chip sm blue">已推播</span>' : ""}${p["起漲第1根"] ? ' <span class="chip sm amber" title="前 20 天盤整後首度放量大漲">★ 起漲第1根</span>' : ""}</td>
       <td class="num">${fmt(p["現價"])}</td>
       <td class="num">${pct(p["漲跌%"])}%</td>
       <td class="num col-opt">${pct(p["開盤%"], 1)}%</td>
@@ -1387,6 +1398,7 @@ function renderOvernight() {
       <h3>隔日沖：收盤前買進、明天開盤賣出</h3>
       <div class="muted" style="font-size:13px">盤中漲到 +7% 以上（開盤時還沒到 +7%）、股價接近或突破 60 日高點、成交量 1,000 張以上，排除處置股；越接近漲停排越前面，最多 10 檔。</div>
       ${status}
+      ${pushedNote}
       <dl class="plan" style="margin-top:10px">
         <dt>進場</dt><dd>收盤前買進，不要追高於漲停價；已漲停的股票委買排隊中，可能買不到</dd>
         <dt>出場</dt><dd>兩種賣法擇一：<b>① 明天開盤直接賣</b>（11 年平均 ${pct(R.exit_open.train.avg)}%～${pct(R.exit_open.test.avg)}%、勝率約 ${R.exit_open.test.win}%，平均賺最多）；

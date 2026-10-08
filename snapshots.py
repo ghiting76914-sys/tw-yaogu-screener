@@ -50,6 +50,12 @@ def save(data):
         json.dump(snap, fh, ensure_ascii=False)
 
 
+def pushed_overnight(date):
+    """當天盤中推播（第一次盤中存檔）的隔日沖名單；實際績效以這份計算。"""
+    snap = _load(date, "preview")
+    return {"time": snap.get("time"), "list": snap.get("overnight") or []} if snap else None
+
+
 def _load(date, mode):
     path = os.path.join(SNAP_DIR, f"{date}_{mode}.json")
     if os.path.exists(path):

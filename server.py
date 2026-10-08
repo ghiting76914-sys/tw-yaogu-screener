@@ -96,6 +96,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         snapshots.save(data)
     except Exception as e:
         print(f"名單存檔失敗：{e}")
+    data["overnight_pushed"] = snapshots.pushed_overnight(data["trade_date"])
     try:
         data["perf"] = perf.compute(history)  # 存檔後再算，今天的名單也會列為「等待進場」
     except Exception as e:
