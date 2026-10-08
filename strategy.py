@@ -755,6 +755,11 @@ OVERNIGHT_RESEARCH = {
     # research/first_bar.py：同樣 20 日均量 ≥ 500 張的股票中，起漲第 1 根 vs 其他（隔天開盤賣）
     "first_bar": {"train": {"win": 53.1, "avg": 0.54}, "test": {"win": 49.9, "avg": 0.42}},
     "not_first": {"train": {"win": 48.7, "avg": -0.02}, "test": {"win": 50.5, "avg": 0.13}},
+    # research/overnight_rank.py：推薦分數（起漲第 1 根 2 分、量比 < 2 一分、突破 60 日高一分）≥ 2 vs 其他
+    "rec": {"train": {"win": 54.8, "avg": 0.81}, "test": {"win": 55.8, "avg": 0.98}},
+    "not_rec": {"train": {"win": 48.4, "avg": -0.02}, "test": {"win": 48.8, "avg": -0.03}},
+    # 已經漲停才看到、用漲停價排隊：收盤鎖住 +1.8～2.0%，被打開 -3.7～-3.9%（排得到的多半是後者）
+    "queue_opened": -3.8,
 }
 
 
@@ -839,12 +844,21 @@ def overnight_picks(history, ref):
             "漲跌%": round(f["pct"], 2), "開盤%": round(f["open_pct"], 2),
             "漲停價": tick_floor(f["prev"] * 1.1), "已漲停": f["limit"],
             "限價賣出": limit_sell_price(r["close"]), "起漲第1根": f["first"],
+            "突破60日高": r["high"] > f["prior_high"],
+            "推薦": 2 * f["first"] + bool(f["vol_ratio"] and f["vol_ratio"] < 2) + (r["high"] > f["prior_high"]) >= 2,
             "量比": round(f["vol_ratio"], 2) if f["vol_ratio"] else None,
             "理由": reasons, "風險": risks,
         })
     # 越接近漲停排越前面（收盤鎖住漲停的隔天表現最好），同漲幅依量比
-    # 起漲第 1 根排最前面（11 年回測較好），其餘越接近漲停排越前面
-    out.sort(key=lambda p: (p["起漲第1根"], p["漲跌%"], p["量比"] or 0), reverse=True)
+    # 排序（research/overnight_rank.py）：還沒漲停的在前（買得到；已漲停排隊買到的多半是被打開的），
+    # 其中「推薦」（起漲第 1 根，或量比 < 2 且突破 60 日高）優先，同一層漲幅越大越前面
+    for p in out:
+        if p["推薦"]:
+            p["理由"].insert(0, "⭐ 推薦：" + ("起漲第 1 根" if p["起漲第1根"] else "量能溫和（量比 < 2）且突破 60 日高")
+                           + "；11 年回測這類平均 +0.8～1.0%，其他約 0%")
+        if p["已漲停"]:
+            p["風險"].insert(0, "已漲停才看到只能排隊，排得到的多半是之後被打開的（回測平均 -3.8%），不建議排隊追")
+    out.sort(key=lambda p: (not p["已漲停"], p["推薦"], p["漲跌%"], p["量比"] or 0), reverse=True)
     return out[:OVERNIGHT["top"]]
 
 

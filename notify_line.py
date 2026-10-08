@@ -396,8 +396,8 @@ def build_overnight_flex(data):
     for i, p in enumerate(picks, 1):
         rows.append({"type": "box", "layout": "horizontal", "spacing": "sm", "contents": [
             text(f"{i}", size="xs", color=MUTED, flex=1),
-            text(f"{'★' if p.get('起漲第1根') else ''}{p['名稱']} {p['代號']}", size="sm",
-                 color=ACCENT if p.get("起漲第1根") else INK, weight="bold" if p.get("起漲第1根") else "regular", flex=6),
+            text(f"{'⭐' if p.get('推薦') else ''}{p['名稱']} {p['代號']}", size="sm",
+                 color=ACCENT if p.get("推薦") else INK, weight="bold" if p.get("推薦") else "regular", flex=6),
             text(f"{p['漲跌%']:+.1f}%", size="sm", weight="bold", color=UP, flex=3, align="end"),
             text(f"{p['現價']:g}", size="xs", color=MUTED, flex=3, align="end"),
             text(f"{p['限價賣出']:g}" if p.get("限價賣出") else "—", size="xs", color=ACCENT, flex=3, align="end"),
@@ -406,7 +406,8 @@ def build_overnight_flex(data):
     body = [
         text("收盤前買進。明天兩種賣法擇一：① 開盤直接賣（平均賺最多）；② 掛「+2%賣」價格的限價單，"
              "沒成交就收盤前賣（勝率約 62%，但平均較少）。已漲停的委買排隊中，可能買不到。"
-             "★ 為起漲第 1 根（前 20 天盤整後首度放量大漲），回測表現較好，排在最前面。", size="xs", color=MUTED, wrap=True),
+             "排序：還沒漲停的在前，⭐推薦（起漲第 1 根，或量能溫和且突破 60 日高，回測平均 +0.8～1.0%）優先；"
+             "已漲停的排最後，排隊買到的多半是會被打開的，不建議追。", size="xs", color=MUTED, wrap=True),
         {"type": "separator"},
     ]
     if rows:
@@ -440,7 +441,7 @@ def build_overnight_text(data):
     hhmm = ((data.get("live") or {}).get("time") or "")[:5]
     lines = [f"⚡ 隔日沖候選｜{data['trade_date']} {hhmm} 盤中",
              "收盤前買進；明天開盤賣，或掛「+2%賣」限價、沒成交收盤賣。", ""]
-    lines += [f"{i}. {'★' if p.get('起漲第1根') else ''}{p['名稱']} {p['代號']}  {p['漲跌%']:+.1f}%  現價 {p['現價']:g}"
+    lines += [f"{i}. {'⭐' if p.get('推薦') else ''}{p['名稱']} {p['代號']}  {p['漲跌%']:+.1f}%  現價 {p['現價']:g}"
               f"{'  +2%賣 ' + format(p['限價賣出'], 'g') if p.get('限價賣出') else ''}{'（已漲停）' if p['已漲停'] else ''}"
               for i, p in enumerate(picks, 1)] or ["目前沒有符合條件的股票。"]
     lines += ["", f"完整名單：{SITE_URL}#overnight"]
