@@ -379,7 +379,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     <button data-v="overnight">隔日沖<span class="count num" id="cntOvernight">–</span></button>
     <button data-v="rev">營收動能<span class="count num" id="cntRev">–</span></button>
     <button data-v="perf">實際績效</button>
-    <button data-v="etf">0050 專區<span class="count" id="etfTemp">–</span></button>
+    <button data-v="etf">ETF 專區<span class="count" id="etfTemp">–</span></button>
     <span class="tab-sep" title="這三個分頁的名單，2 年回測都沒有明顯優勢，僅供觀察">觀察</span>
     <button class="obs" data-v="radar">妖股雷達<span class="count num" id="cntRadar">–</span></button>
     <button class="obs" data-v="picks">明日強勢候選<span class="count num" id="cntPicks">–</span></button>
@@ -598,7 +598,7 @@ async function runScreen(silent = false) {
     renderPerf();
     const first = listFor(state.view)[0];
     const keep = state.selected && findStock(state.selected);
-    if (state.view === "etf") renderEtfDetail();  // 0050 專區的右側是 0050 K 線，不選個股
+    if (state.view === "etf") renderEtfDetail();  // ETF 專區的右側是目前選的 ETF K 線，不選個股
     else if (state.view === "perf") showEmptyDetail();
     else if (keep) select(state.selected);
     else if (first) select(first["代號"]);
@@ -1281,9 +1281,73 @@ function renderRev() {
     </div>` : ""}`;
 }
 
-// ---------------------------------------------------------------- 0050 專區
+// ---------------------------------------------------------------- ETF 專區（0050 與其他 ETF）
+
+function etfSelected() {
+  const code = state.etfCode || "0050";
+  if (code === "0050") return state.data && state.data.etf;
+  return ((state.data && state.data.etfs) || []).find((x) => x.code === code) || null;
+}
+
+function etfSwitch() {
+  const list = [{ code: "0050", name: "元大台灣50" }, ...((state.data && state.data.etfs) || [])];
+  const cur = state.etfCode || "0050";
+  return `<div class="seg" id="etfSeg" style="margin-bottom:12px">${list.map((x) =>
+    `<button data-code="${x.code}" class="${x.code === cur ? "on" : ""}">${x.code} ${esc(x.name)}</button>`).join("")}</div>`;
+}
+
+function bindEtfSwitch() {
+  const seg = $("etfSeg");
+  if (!seg) return;
+  seg.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    state.etfCode = b.dataset.code;
+    renderEtf();
+    renderEtfDetail();
+  }));
+}
+
+function perfGrid(e) {
+  return e.perf ? `<div class="perf-grid num">${e.perf.map((p) => `<div title="${p.from} 收盤起算">
+        <div class="k">${p.label}</div><div class="v ${p.pct > 0 ? "up" : p.pct < 0 ? "down" : ""}">${p.pct > 0 ? "+" : ""}${p.pct.toFixed(2)}%</div></div>`).join("")}</div>
+      <div class="muted" style="font-size:11px;margin-top:4px">績效含配息（還原股價），以期初當天或之前最後一個交易日收盤起算；與只看股價的網站會有些微差異。</div>` : "";
+}
+
+function renderEtfLite(x) {
+  const d = x.dip;
+  const lv = x.levels.map((l) => `
+    <div><div class="k">${l.label}</div><div class="v">${fmt(l.price)}</div>
+      <div class="s ${l.above ? "muted" : "down"}">${l.above ? "已高於現價" : `${l.diff.toFixed(1)}%`}</div></div>`).join("");
+  $("etfView").innerHTML = `${etfSwitch()}
+    <div class="etf-card">
+      <div class="etf-head">
+        <b style="font-size:17px">${esc(x.name)}</b><span class="code num">${x.code}</span>
+        <span class="p num ${x.pct > 0 ? "up" : x.pct < 0 ? "down" : ""}">${fmt(x.close)}</span>
+        <span class="num">${pct(x.pct)}%</span>
+        <span class="muted" style="font-size:12px">${x.date} 收盤</span>
+      </div>
+      ${perfGrid(x)}
+      <div class="ladder num">${lv}</div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">主動式 ETF，${x.listed} 上市（${x.days} 個交易日）。上市時間短，無法像 0050 一樣做買法回測與歷史機率；均線價位僅供參考。</p>
+    </div>
+    <div class="etf-card">
+      <h3>距離高點的位置</h3>
+      <div class="muted" style="font-size:13px">${x.days >= 250 ? "近一年" : "上市以來"}最高收盤 <b class="num">${fmt(d.high)}</b>（${d.high_date}），目前回檔 <b class="num">${(-d.dd).toFixed(1)}%</b>。</div>
+      <div class="ladder num">
+        ${d.prices.map((p) => `<div><div class="k">回檔 ${p.level}%</div>
+          <div class="v ${p.hit ? "down" : ""}">${fmt(p.price)}</div>
+          <div class="s ${p.hit ? "down" : "muted"}">${p.hit ? "✓ 已到" : `距現價 ${((p.price / x.close - 1) * 100).toFixed(1)}%`}</div></div>`).join("")}
+      </div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">「買進／強力買進」訊號只用在有 13 年回測的 0050，這裡只列出回檔位置。主動式 ETF 的績效取決於經理人選股，過去表現不代表未來，管理費也比 0050 高。</p>
+    </div>`;
+  bindEtfSwitch();
+}
 
 function renderEtf() {
+  if ((state.etfCode || "0050") !== "0050") {
+    const x = etfSelected();
+    if (x) { renderEtfLite(x); return; }
+    state.etfCode = "0050";
+  }
   const e = state.data && state.data.etf;
   if (!e) {
     $("etfView").innerHTML = `<div class="card empty">0050 資料讀取失敗，請稍後重新整理。</div>`;
@@ -1300,7 +1364,7 @@ function renderEtf() {
   const lv = e.levels.map((l) => `
     <div><div class="k">${l.label}</div><div class="v">${fmt(l.price)}</div>
       <div class="s ${l.above ? "muted" : "down"}">${l.above ? "已高於現價" : `${l.diff.toFixed(1)}%｜20 天內碰到 ${l.hit ?? "–"}%`}</div></div>`).join("");
-  $("etfView").innerHTML = `
+  $("etfView").innerHTML = `${etfSwitch()}
     <div class="banner">
       <h3>今天怎麼買 0050</h3>
       <div class="etf-verdict">${early
@@ -1317,9 +1381,7 @@ function renderEtf() {
         <span class="num">${pct(e.pct)}%</span>
         <span class="muted" style="font-size:12px">${e.date} 收盤</span>
       </div>
-      ${e.perf ? `<div class="perf-grid num">${e.perf.map((p) => `<div title="${p.from} 收盤起算">
-        <div class="k">${p.label}</div><div class="v ${p.pct > 0 ? "up" : p.pct < 0 ? "down" : ""}">${p.pct > 0 ? "+" : ""}${p.pct.toFixed(2)}%</div></div>`).join("")}</div>
-      <div class="muted" style="font-size:11px;margin-top:4px">績效含配息（還原股價），以期初當天或之前最後一個交易日收盤起算；與只看股價的網站會有些微差異。</div>` : ""}
+      ${perfGrid(e)}
       <div class="ladder num">
         <div><div class="k">明日開盤（建議）</div><div class="v up">市價買進</div><div class="s muted">今日收盤 ${fmt(e.close)}</div></div>
         ${lv}
@@ -1347,6 +1409,7 @@ function renderEtf() {
       </table></div>
       <p class="research">回測只代表過去 13 年台股長期上漲的情況。若未來出現長期下跌，等低點的買法可能會比較好。非投資建議，請依自己的資金規劃分配。</p>
     </div>`;
+  bindEtfSwitch();
 }
 
 function dipCard(e, d) {
@@ -1375,11 +1438,12 @@ function dipCard(e, d) {
 }
 
 function renderEtfDetail() {
-  const e = state.data && state.data.etf;
+  const e = etfSelected();
   if (!e) { showEmptyDetail(); return; }
+  const code = e.code || "0050", name = e.name || "元大台灣50";
   $("detail").innerHTML = `<div class="inner">
     <div class="d-head">
-      <div><div class="d-title">元大台灣50 <span class="code num">0050</span><span class="mkt">ETF</span></div>
+      <div><div class="d-title">${esc(name)} <span class="code num">${code}</span><span class="mkt">ETF</span></div>
         <div class="muted" style="margin-top:6px;font-size:12px">還原 K 線（含配息、分割），近 60 日</div></div>
       <div class="d-price"><div class="p num ${e.pct > 0 ? "up" : e.pct < 0 ? "down" : ""}">${fmt(e.close)}</div><div class="num">${pct(e.pct)}%</div></div>
     </div>
@@ -1387,8 +1451,8 @@ function renderEtfDetail() {
     <div class="ohlc num" id="ohlc">&nbsp;</div>
     <div id="chart"></div>
     <div class="links">
-      <a href="https://tw.stock.yahoo.com/quote/0050" target="_blank" rel="noopener">Yahoo 股市 ↗</a>
-      <a href="https://www.yuantaetfs.com/product/detail/0050/ratio" target="_blank" rel="noopener">元大投信 0050 ↗</a>
+      <a href="https://tw.stock.yahoo.com/quote/${code}" target="_blank" rel="noopener">Yahoo 股市 ↗</a>
+      ${code === "0050" ? `<a href="https://www.yuantaetfs.com/product/detail/0050/ratio" target="_blank" rel="noopener">元大投信 0050 ↗</a>` : ""}
     </div>
   </div>`;
   const colors = { ma20: "var(--warn)", ma60: "var(--info)", ma120: "var(--down)" };
@@ -1411,7 +1475,7 @@ function setView(v) {
   if (v === "etf") { renderEtfDetail(); return; }
   if (v === "perf") { showEmptyDetail(); return; }
   const list = listFor(v);
-  // 從 0050 專區切回來時，右側要換回個股明細
+  // 從 ETF 專區切回來時，右側要換回個股明細
   if (list && list.length) select(list.some((x) => x["代號"] === state.selected) ? state.selected : list[0]["代號"]);
 }
 

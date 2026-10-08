@@ -12,6 +12,11 @@ from yaogu import CACHE_DIR, fetch_json, num
 
 CODE = "0050"
 START = dt.date(2012, 1, 1)
+# ETF 專區的其他 ETF：名稱、資料起始月（上市月）。上市時間短，只提供價格、績效、均線與回檔位置，不做買法回測
+OTHERS = {
+    "00981A": ("主動統一台股增長", dt.date(2025, 5, 1)),
+    "00991A": ("主動復華未來50", dt.date(2025, 12, 1)),
+}
 
 
 def _num(s):
@@ -22,9 +27,9 @@ def _num(s):
     return None if v is None else sign * v
 
 
-def load_month(year, month):
+def load_month(year, month, code=CODE):
     ymd = f"{year}{month:02d}"
-    path = os.path.join(CACHE_DIR, f"etf_{CODE}_{ymd}.json")
+    path = os.path.join(CACHE_DIR, f"etf_{code}_{ymd}.json")
     today = dt.date.today()
     current = (year, month) == (today.year, today.month)
     if os.path.exists(path):
@@ -33,7 +38,7 @@ def load_month(year, month):
         # 當月資料每天收盤後要補上新的一天
         if not current or cached.get("fetched") == today.isoformat() and cached.get("complete"):
             return cached["rows"]
-    d = fetch_json(f"https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&date={ymd}01&stockNo={CODE}")
+    d = fetch_json(f"https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&date={ymd}01&stockNo={code}")
     rows = []
     for r in d.get("data", []):
         y, m, dd = r[0].split("/")
@@ -50,12 +55,12 @@ def load_month(year, month):
     return rows
 
 
-def load_history(start=START):
+def load_history(start=START, code=CODE):
     today = dt.date.today()
     y, m = start.year, start.month
     rows = []
     while (y, m) <= (today.year, today.month):
-        rows += load_month(y, m)
+        rows += load_month(y, m, code)
         y, m = (y + 1, 1) if m == 12 else (y, m + 1)
     rows = [r for r in rows if r["close"] is not None and r["open"] is not None]
     return adjust(rows)
@@ -282,6 +287,42 @@ def summary():
                   "low": round(r["adj_low"], 2), "close": round(r["adj_close"], 2),
                   "volume": int((r["volume"] or 0) / 1000)} for r in rows[-61:]],
     }
+
+
+def lite_summary(code):
+    """上市時間短的 ETF：價格、各期間績效、均線價位、距高點回檔與 K 線（不做回測與歷史機率）。"""
+    name, start = OTHERS[code]
+    rows = mark_dips(indicators(load_history(start, code)))
+    last = rows[-1]
+    window = rows[-250:]
+    hi = max(window, key=lambda r: r["adj_close"])
+    levels = [{"key": key, "label": label, "price": round(last[key], 2),
+               "diff": round((last[key] / last["close"] - 1) * 100, 2), "hit": None, "above": last[key] >= last["close"]}
+              for key, label in LEVELS if last.get(key) is not None]
+    return {
+        "code": code, "name": name, "listed": rows[0]["date"], "days": len(rows),
+        "date": last["date"], "close": last["close"], "change": last["change"],
+        "pct": round(last["change"] / (last["close"] - last["change"]) * 100, 2) if last["change"] is not None else None,
+        "levels": levels, "perf": period_returns(rows),
+        # 買進訊號只用在有 13 年回測的 0050；這裡只提供回檔位置
+        "dip": {"dd": round(last["dd"] * 100, 2), "level": last["dip"],
+                "high": round(hi["adj_close"], 2), "high_date": hi["date"], "step": DIP_STEP, "strong": DIP_STRONG,
+                "prices": [{"level": lv, "label": dip_label(lv), "price": round(hi["adj_close"] * (1 - lv / 100), 2),
+                            "hit": last["dip"] >= lv} for lv in (5, 10, 15, 20)]},
+        "bars": [{"date": r["date"], "open": round(r["adj_open"], 2), "high": round(r["adj_high"], 2),
+                  "low": round(r["adj_low"], 2), "close": round(r["adj_close"], 2),
+                  "volume": int((r["volume"] or 0) / 1000)} for r in rows[-61:]],
+    }
+
+
+def others():
+    out = []
+    for code in OTHERS:
+        try:
+            out.append(lite_summary(code))
+        except Exception as e:
+            print(f"{code} 資料讀取失敗：{e}")
+    return out
 
 
 if __name__ == "__main__":

@@ -85,7 +85,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             "picks": picks, "backtest": _backtests[bt_key][0],
             "pre": pre, "pre_backtest": _backtests[bt_key][1],
             "market": res["market"][-1], "insti_ready": res["insti"][-1] is not None,
-            "insti_excluded": excluded, "details": details, "etf": _etf_summary(),
+            "insti_excluded": excluded, "details": details, "etf": _etf_summary(), "etfs": etf.others(),
             "pre_total": pre_total[0] if pre_total else len(pre), "revenue": rev,
             "overnight": overnight, "overnight_backtest": _backtests[bt_key][2],
             "overnight_research": strategy.OVERNIGHT_RESEARCH, "previous": previous,
@@ -144,7 +144,7 @@ def _revenue_summary(history):
 
 
 def _etf_summary():
-    """0050 專區資料；抓不到時不影響其他分頁。"""
+    """ETF 專區的 0050 資料；抓不到時不影響其他分頁。"""
     try:
         return etf.summary()
     except Exception as e:

@@ -486,7 +486,7 @@ def build_dip_flex(data):
         "body": {"type": "box", "layout": "vertical", "spacing": "md", "paddingAll": "18px", "contents": contents},
         "footer": {"type": "box", "layout": "vertical", "paddingAll": "12px",
                    "contents": [{"type": "button", "style": "secondary", "height": "sm",
-                                 "action": {"type": "uri", "label": "打開 0050 專區", "uri": SITE_URL}}]},
+                                 "action": {"type": "uri", "label": "打開 ETF 專區", "uri": SITE_URL}}]},
     }
     return {"type": "flex", "altText": f"{'🔥 強力買進' if strong else '🟠 買進'}：0050 回檔 {-d['dd']:.1f}%（收盤 {e['close']:g}）",
             "contents": bubble}
