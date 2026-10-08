@@ -14,6 +14,7 @@ import snapshots
 import strategy
 
 COST = strategy.ROUND_TRIP_COST
+MAX_TRADES = 200  # 網站只附最近 200 筆明細；統計仍用全部交易
 
 
 def _snaps():
@@ -102,6 +103,6 @@ def compute(history):
     out = {}
     for key, trades in (("top3", top3), ("overnight", overnight), ("overnight_limit", overnight_limit), ("revenue", rev)):
         trades.sort(key=lambda x: (x["日期"], x["代號"]), reverse=True)
-        out[key] = {"summary": _summary(trades), "trades": trades}
+        out[key] = {"summary": _summary(trades), "trades": trades[:MAX_TRADES]}
     out["since"] = min((s["trade_date"] for s in _snaps()), default=None)
     return out

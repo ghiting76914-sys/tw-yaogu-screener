@@ -336,6 +336,10 @@ svg.chart { width: 100%; height: auto; display: block; }
 .alert-bar td.r { text-align: right; }
 .alert-toasts { position: fixed; right: 16px; bottom: 16px; z-index: 50; display: grid; gap: 8px; max-width: min(360px, calc(100vw - 32px)); }
 .alert-toast { background: var(--text); color: var(--panel); border-radius: 10px; padding: 10px 14px; font-size: 13px; box-shadow: var(--shadow); cursor: pointer; }
+.perf-details { margin-top: 10px; }
+.perf-details summary { cursor: pointer; font-size: 13px; color: var(--accent); font-weight: 600; }
+.perf-scroll { max-height: 420px; overflow-y: auto; margin-top: 6px; }
+.perf-scroll thead th { position: sticky; top: 0; background: var(--panel); }
 .perf-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; background: var(--line); border-radius: 10px; overflow: hidden; margin-top: 12px; }
 .perf-grid > div { background: var(--panel-2); padding: 8px 10px; }
 .perf-grid .k { font-size: 12px; color: var(--muted); }
@@ -1241,7 +1245,7 @@ function renderPerf() {
   const block = (key, title, how, expect) => {
     const d = P[key], s = d.summary;
     const val = (x) => x == null ? "–" : `${pct(x)}%`;
-    const rows = d.trades.slice(0, 40).map((t) => `<tr data-code="${t["代號"]}">
+    const rows = d.trades.map((t) => `<tr data-code="${t["代號"]}">
       <td>${t["日期"]}</td><td class="l">${esc(t["名稱"])} <span class="code num">${t["代號"]}</span></td>
       <td>${t["進場"] == null ? "–" : fmt(t["進場"])}</td><td>${t["出場"] == null ? "–" : fmt(t["出場"])}</td>
       <td class="${t["報酬%"] > 0 ? "up" : t["報酬%"] < 0 ? "down" : ""}">${t["報酬%"] == null ? "–" : pct(t["報酬%"]) + "%"}</td>
@@ -1255,7 +1259,8 @@ function renderPerf() {
         <div><div class="k">持有中平均（未扣成本）</div><div class="v num">${val(s.open_avg)}<small>${s.open} 筆</small></div></div>
       </div>
       <div class="muted" style="font-size:12px">回測預期：${expect}</div>
-      ${rows ? `<div class="bt-wrap" style="margin-top:8px"><table class="bt-table num"><thead><tr><th>選出日</th><th class="l">股票</th><th>進場</th><th>出場／目前</th><th>報酬</th><th class="l">狀態</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      ${rows ? `<details class="perf-details"><summary>交易明細（${d.trades.length < s.total ? `最近 ${d.trades.length} 筆，` : ""}共 ${s.total} 筆）</summary>
+        <div class="bt-wrap perf-scroll"><table class="bt-table num"><thead><tr><th>選出日</th><th class="l">股票</th><th>進場</th><th>出場／目前</th><th>報酬</th><th class="l">狀態</th></tr></thead><tbody>${rows}</tbody></table></div></details>`
         : `<div class="empty" style="padding:16px">還沒有紀錄。${key === "revenue" ? "下一次換股日開始記錄。" : "每天都會累積。"}</div>`}
     </div>`;
   };
