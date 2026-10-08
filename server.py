@@ -8,11 +8,13 @@ import argparse
 import datetime as dt
 import json
 import os
+import re
 import threading
 import types
 import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+from urllib.parse import quote as quote_url
 
 import etf
 import perf
@@ -198,6 +200,15 @@ class Handler(SimpleHTTPRequestHandler):
             elif url.path == "/api/quote":
                 q_ = quote(q.get("code", ""))
                 self.send_json({"quote": q_, "market_open": yaogu.market_open_now()})
+            elif url.path == "/api/mis":
+                # 盤中到價提醒：與 cloudflare/worker.js 相同，只轉接證交所即時報價
+                ex = q.get("ex_ch", "")
+                if not re.fullmatch(r"(tse|otc)_[0-9A-Z]{4,6}\.tw(\|(tse|otc)_[0-9A-Z]{4,6}\.tw){0,79}", ex):
+                    self.send_json({"error": "bad request"}, 400)
+                else:
+                    self.send_json(yaogu.fetch_json(
+                        f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?json=1&delay=0&ex_ch={quote_url(ex)}",
+                        retries=1, interval=0))
             elif url.path == "/api/chart":
                 bars = chart_data(q.get("code", ""), q.get("date", "").replace("-", ""))
                 if bars is None:

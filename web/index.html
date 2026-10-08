@@ -328,6 +328,14 @@ svg.chart { width: 100%; height: auto; display: block; }
 .plan dd { margin: 0; }
 .ladder { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border-radius: 10px; overflow: hidden; margin-top: 14px; }
 .ladder div { background: var(--panel-2); padding: 8px 12px; }
+#alertBtn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.alert-bar { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; margin: 0 0 12px; font-size: 13px; }
+.alert-bar summary { cursor: pointer; }
+.alert-bar table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12px; }
+.alert-bar td { padding: 4px 6px; border-top: 1px solid var(--line); }
+.alert-bar td.r { text-align: right; }
+.alert-toasts { position: fixed; right: 16px; bottom: 16px; z-index: 50; display: grid; gap: 8px; max-width: min(360px, calc(100vw - 32px)); }
+.alert-toast { background: var(--text); color: var(--panel); border-radius: 10px; padding: 10px 14px; font-size: 13px; box-shadow: var(--shadow); cursor: pointer; }
 .perf-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; background: var(--line); border-radius: 10px; overflow: hidden; margin-top: 12px; }
 .perf-grid > div { background: var(--panel-2); padding: 8px 10px; }
 .perf-grid .k { font-size: 12px; color: var(--muted); }
@@ -366,6 +374,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     <small>台股上市櫃 · 每日收盤篩選</small>
   </div>
   <div class="head-right">
+    <button id="alertBtn" type="button" title="盤中股價到推薦進場點位時，跳出瀏覽器通知（網頁需保持開啟）">🔔 盤中提醒</button>
     <span class="status" id="status"></span>
     <input type="date" id="date" class="dyn" title="篩選日期（留空為最近交易日）">
     <button class="primary" id="run">更新篩選</button>
@@ -385,6 +394,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
     <button class="obs" data-v="picks">明日強勢候選<span class="count num" id="cntPicks">–</span></button>
     <button class="obs" data-v="pre">起漲前夕<span class="count num" id="cntPre">–</span></button>
   </nav>
+
+  <div id="alertBar" class="alert-bar" hidden></div>
 
   <div id="radarTop">
   <section class="controls">
@@ -596,6 +607,7 @@ async function runScreen(silent = false) {
     renderOvernight();
     renderTop3();
     renderPerf();
+    alertSetup();
     const first = listFor(state.view)[0];
     const keep = state.selected && findStock(state.selected);
     if (state.view === "etf") renderEtfDetail();  // ETF 專區的右側是目前選的 ETF K 線，不選個股
@@ -840,6 +852,173 @@ async function select(code) {
   }
   if (!STATIC && state.data.market_open) pollQuote(code);
 }
+
+// ---------------------------------------------------------------- 盤中到價提醒（網頁通知）
+// 靜態網站無法直接讀證交所即時行情（沒有開放跨網域），透過自己的 Cloudflare Worker 轉接（cloudflare/worker.js）；
+// 盤中每 30 秒查一次所有監看中的股票，到價時跳出瀏覽器通知與提示音，每個價位每天只提醒一次。
+const ALERT_WORKER = "";  // Cloudflare Worker 網址，例如 https://yaogu-quote.xxx.workers.dev
+const alertState = { timer: null, targets: [], prices: {}, last: null, error: null };
+
+function twNow() {
+  const n = new Date();
+  return new Date(n.getTime() + (n.getTimezoneOffset() + 480) * 60000);
+}
+function twDay(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function inMarketHours() {
+  const t = twNow(), m = t.getHours() * 60 + t.getMinutes(), w = t.getDay();
+  return w >= 1 && w <= 5 && m >= 540 && m <= 810;
+}
+function alertOn() {
+  try { return localStorage.getItem("alertOn") === "1"; } catch (e) { return false; }
+}
+function alertSeen() {
+  try { return new Set(JSON.parse(localStorage.getItem(`alertSeen-${twDay(twNow())}`) || "[]")); } catch (e) { return new Set(); }
+}
+function alertMarkSeen(key) {
+  const seen = alertSeen();
+  seen.add(key);
+  try { localStorage.setItem(`alertSeen-${twDay(twNow())}`, JSON.stringify([...seen])); } catch (e) { /* 無法儲存就只提醒當下 */ }
+}
+
+// 今天要監看的價位：收盤後的資料（還沒到今天）用當天名單；12:30 盤中預覽後改用「前一交易日」名單
+function alertTargets() {
+  const d = state.data;
+  if (!d) return [];
+  const today = twDay(twNow());
+  const preview = d.live && !d.live.final;
+  let picks = [], pre = [];
+  if (preview && d.trade_date === today && d.previous) {
+    picks = (d.previous.picks || []).filter((p) => p["進場區間"]).map((p) => ({ code: p["代號"], name: p["名稱"], lo: p["進場區間"][0], hi: p["進場區間"][1] }));
+    pre = (d.previous.pre || []).filter((p) => p["突破價"]).map((p) => ({ code: p["代號"], name: p["名稱"], trig: p["突破價"] }));
+  } else if (!preview && d.trade_date < today) {
+    picks = (d.picks || []).map((p) => ({ code: p["代號"], name: p["名稱"], lo: p["計畫"].levels.entry_low, hi: p["計畫"].levels.entry_high }));
+    pre = (d.pre || []).map((p) => ({ code: p["代號"], name: p["名稱"], trig: p["計畫"].levels.trigger }));
+  }
+  const out = [];
+  picks.forEach((p) => out.push({ key: `picks-${p.code}`, code: p.code, name: p.name, kind: "明日強勢候選",
+    desc: `進場區間 ${fmt(p.lo)}～${fmt(p.hi)}`, hit: (x) => x >= p.lo && x <= p.hi }));
+  pre.forEach((p) => out.push({ key: `pre-${p.code}`, code: p.code, name: p.name, kind: "起漲前夕",
+    desc: `突破價 ${fmt(p.trig)}`, hit: (x) => x >= p.trig }));
+  const dip = d.etf && d.etf.dip;
+  if (dip) dip.prices.filter((x) => !x.hit && x.level <= 10).forEach((x) => out.push({ key: `etf-${x.level}`, code: "0050", name: "元大台灣50",
+    kind: "0050 回檔", desc: `回檔 ${x.level}%（${x.label}）${fmt(x.price)}`, hit: (v) => v <= x.price }));
+  return out;
+}
+
+async function alertFetch(codes) {
+  const ex = codes.flatMap((c) => c === "0050" ? [`tse_${c}.tw`] : [`tse_${c}.tw`, `otc_${c}.tw`]).join("|");
+  const url = STATIC ? `${ALERT_WORKER}?ex_ch=${encodeURIComponent(ex)}` : `/api/mis?ex_ch=${encodeURIComponent(ex)}`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  let res;
+  try { res = await fetch(url, { cache: "no-store", signal: ctrl.signal }); } finally { clearTimeout(timer); }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const j = await res.json();
+  const out = {};
+  for (const r of j.msgArray || []) {
+    let p = parseFloat(r.z);
+    if (!(p > 0)) {  // 這一刻沒有成交：用最佳買價（沒有就用賣價）
+      const b = parseFloat((r.b || "").split("_")[0]), a = parseFloat((r.a || "").split("_")[0]);
+      p = b > 0 ? b : a > 0 ? a : NaN;
+    }
+    if (p > 0) out[r.c] = { price: p, time: r.t };
+  }
+  return out;
+}
+
+function alertBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.value = 880; g.gain.value = 0.15;
+    o.connect(g); g.connect(ctx.destination);
+    o.start(); o.stop(ctx.currentTime + 0.35);
+  } catch (e) { /* 不支援就略過 */ }
+}
+
+function alertToast(text) {
+  let box = document.querySelector(".alert-toasts");
+  if (!box) { box = document.createElement("div"); box.className = "alert-toasts"; document.body.appendChild(box); }
+  const el = document.createElement("div");
+  el.className = "alert-toast";
+  el.textContent = text;
+  el.onclick = () => el.remove();
+  box.appendChild(el);
+  setTimeout(() => el.remove(), 60000);
+}
+
+function alertFire(t, price) {
+  const title = `🔔 ${t.name} ${t.code} 到價`;
+  const body = `${t.kind}：${t.desc}，現價 ${fmt(price)}`;
+  try {
+    if ("Notification" in window && Notification.permission === "granted") new Notification(title, { body, tag: t.key });
+  } catch (e) { /* 部分手機瀏覽器不支援，改用頁面提示 */ }
+  alertToast(`${title}｜${body}`);
+  alertBeep();
+  alertMarkSeen(t.key);
+}
+
+function alertRender() {
+  const bar = $("alertBar");
+  const on = alertOn();
+  $("alertBtn").classList.toggle("on", on);
+  $("alertBtn").textContent = on ? "🔔 提醒中" : "🔔 盤中提醒";
+  if (!on) { bar.hidden = true; return; }
+  bar.hidden = false;
+  const seen = alertSeen();
+  const ts = alertState.targets;
+  const status = !ts.length ? "今天沒有需要監看的價位（名單在收盤後產生）"
+    : !inMarketHours() ? `監看 ${ts.length} 個價位，盤中 9:00～13:30 才會檢查`
+    : alertState.error ? `即時行情暫時讀取失敗（${esc(alertState.error)}），30 秒後重試`
+    : `監看 ${ts.length} 個價位・${alertState.last ? `最後更新 ${alertState.last}` : "讀取中…"}・今天已提醒 ${ts.filter((t) => seen.has(t.key)).length} 個`;
+  const perm = !("Notification" in window) ? "（這個瀏覽器不支援系統通知，只會在頁面上提示；iPhone 請先「加入主畫面」再開啟）"
+    : Notification.permission === "denied" ? "（通知權限被封鎖，只會在頁面上提示；請到瀏覽器設定允許通知）" : "";
+  bar.innerHTML = `<details><summary>🔔 <b>盤中到價提醒</b>：${status}${perm}</summary>
+    <table>${ts.map((t) => {
+      const q = alertState.prices[t.code];
+      return `<tr><td>${esc(t.name)} <span class="code num">${t.code}</span></td><td>${t.kind}</td><td>${t.desc}</td>
+        <td class="r num">${q ? fmt(q.price) : "–"}</td><td>${seen.has(t.key) ? "✓ 已到價" : "監看中"}</td></tr>`;
+    }).join("")}</table>
+    <div class="muted" style="margin-top:6px">網頁需保持開啟；即時價約延遲 30～40 秒。明日強勢候選與起漲前夕為觀察名單（2 年回測沒有明顯優勢）。</div></details>`;
+}
+
+async function alertTick() {
+  clearTimeout(alertState.timer);
+  if (!alertOn()) return;
+  const seen = alertSeen();
+  const todo = alertState.targets.filter((t) => !seen.has(t.key));
+  if (inMarketHours() && todo.length) {
+    try {
+      const q = await alertFetch([...new Set(todo.map((t) => t.code))]);
+      Object.assign(alertState.prices, q);
+      alertState.error = null;
+      alertState.last = twNow().toTimeString().slice(0, 8);
+      for (const t of todo) if (q[t.code] && t.hit(q[t.code].price)) alertFire(t, q[t.code].price);
+    } catch (e) {
+      alertState.error = e.message || "網路錯誤";
+    }
+  }
+  alertRender();
+  alertState.timer = setTimeout(alertTick, 30000);
+}
+
+function alertSetup() {
+  $("alertBtn").hidden = STATIC && !ALERT_WORKER;
+  if ($("alertBtn").hidden) return;
+  alertState.targets = alertTargets();
+  alertTick();
+}
+
+$("alertBtn").addEventListener("click", async () => {
+  const on = !alertOn();
+  try { localStorage.setItem("alertOn", on ? "1" : "0"); } catch (e) { /* 無法儲存就只在這次開啟 */ }
+  if (on && "Notification" in window && Notification.permission === "default") {
+    try { await Notification.requestPermission(); } catch (e) { /* 舊版瀏覽器 */ }
+  }
+  alertSetup();
+});
 
 // 盤中每 10 秒更新所選個股的即時報價
 async function pollQuote(code) {
