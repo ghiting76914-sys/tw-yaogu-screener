@@ -622,13 +622,23 @@ def hold_return(s, t, n, hold):
     return ret
 
 
-def hold_return_stop(s, t, n, hold, stop):
-    """隔日開盤買、最多持有 hold 日；盤中跌破「進場價 ×(1-stop)」就出場（跳空跌破用開盤價，一字跌停延後）。
+def hold_return_stop(s, t, n, hold, stop, at_close=False):
+    """隔日開盤買（at_close=True：第 t 天收盤價買，即盤後定價），最多持有 hold 日；
+    盤中跌破「進場價 ×(1-stop)」就出場（跳空跌破用開盤價，一字跌停延後）。
     回傳 (報酬 %, 是否已出場, 持有天數)，含除權息還原、未扣成本；資料不足回傳 None。"""
-    bars = held_bars(s, t + 1, n, hold + 10)
-    if not bars or bars[0][0] != t + 1:
-        return None
-    entry = bars[0][1]["open"]
+    if at_close:
+        bars = held_bars(s, t, n, hold + 11)
+        if not bars or bars[0][0] != t:
+            return None
+        entry = bars[0][1]["close"]
+        bars = bars[1:]
+        if not bars:
+            return 0.0, False, 0
+    else:
+        bars = held_bars(s, t + 1, n, hold + 10)
+        if not bars or bars[0][0] != t + 1:
+            return None
+        entry = bars[0][1]["open"]
     level = entry * (1 - stop)
     pending = False
     for k, (d, b) in enumerate(bars):
@@ -642,7 +652,7 @@ def hold_return_stop(s, t, n, hold, stop):
             if b["locked_down"]:
                 pending = True
                 continue
-            px = level if d == t + 1 else min(b["open"], level)
+            px = level if d == t + 1 and not at_close else min(b["open"], level)
             return (px / entry - 1) * 100, True, k + 1
         if d == t + hold:
             return (b["close"] / entry - 1) * 100, True, k + 1

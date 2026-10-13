@@ -1269,7 +1269,7 @@ function renderPerf() {
       <h3>實際績效：照網站建議操作的真實結果</h3>
       <div class="muted" style="font-size:13px">從 ${P.since || "–"} 開始，用每天存下的名單與之後的實際股價計算；已出場的扣手續費與證交稅，持有中的只算目前漲跌。筆數少時結果波動很大，至少累積幾十筆再跟回測比較才有意義。</div>
     </div>
-    ${block("top3", "🎯 明日精選 3 檔", "選出隔天開盤買進，持有 20 個交易日後收盤賣出；盤中跌破進場價 -10% 就停損。",
+    ${block("top3", "🎯 明日精選 3 檔", "選出當天以收盤價買進（盤後定價，10/12 以前選出的照當時建議為隔天開盤買），持有 20 個交易日後收盤賣出；盤中跌破進場價 -10% 就停損。",
       `每筆平均 ${pct(T3.train ? T3.train.avg : null)}%～${pct(T3.test ? T3.test.avg : null)}%，勝率約 ${T3.test ? T3.test.win : "–"}～${T3.train ? T3.train.win : "–"}%（11 年、停損 -10%）`)}
     ${block("overnight", "⚡ 隔日沖", "12:30 名單當時的價格買進，隔天開盤賣出（已漲停排隊中的實際上可能買不到）。",
       `每筆平均 ${pct(O.train ? O.train.avg : null)}%～${pct(O.test ? O.test.avg : null)}%，勝率約 ${O.train ? O.train.win : "–"}～${O.test ? O.test.win : "–"}%（11 年）`)}
@@ -1316,14 +1316,14 @@ function renderTop3() {
     </div>`).join("");
   const prev = (state.data.previous || {}).top3 || [];
   const prevLine = prev.length
-    ? `前一交易日（${state.data.previous.date}）精選：` + prev.map((p) => `${esc(p["名稱"])} 今開 ${p["今開"] == null ? "–" : fmt(p["今開"])} → 今收 ${p["今收"] == null ? "–" : fmt(p["今收"])}（${p["今日報酬%"] == null ? "–" : pct(p["今日報酬%"]) + "%"}）`).join("、")
+    ? `前一交易日（${state.data.previous.date}）精選：` + prev.map((p) => `${esc(p["名稱"])} 昨收 ${p["價格"] == null ? "–" : fmt(p["價格"])} → 今收 ${p["今收"] == null ? "–" : fmt(p["今收"])}（${p["今日報酬%"] == null ? "–" : pct(p["今日報酬%"]) + "%"}）`).join("、")
     : "";
   $("top3Panel").innerHTML = `
     <div class="top3-head">
       <h2>🎯 明日精選 3 檔</h2>
       <span class="muted" style="font-size:12px">${T.date} ${intraday ? "盤中暫定，收盤後確認" : "收盤選出"}，共 ${T.qualified} 檔符合，依成交值取前 3</span>
     </div>
-    <div class="muted" style="font-size:13px;margin-top:4px">條件：營收創近 12 個月新高、年增 &gt; 20%、站上季線，<b>今天收盤突破 60 日新高</b>，日均量 1,000 張以上。<b>隔天開盤買進、持有 ${T.hold} 個交易日（約一個月）；盤中跌破進場價 -${T.stop || 10}% 就停損</b>。</div>
+    <div class="muted" style="font-size:13px;margin-top:4px">條件：營收創近 12 個月新高、年增 &gt; 20%、站上季線，<b>今天收盤突破 60 日新高</b>，日均量 1,000 張以上。<b>當天 14:00～14:30 用「盤後定價」買進（以收盤價成交），來不及就隔天開盤買；持有 ${T.hold} 個交易日（約一個月），盤中跌破進場價 -${T.stop || 10}% 就停損</b>。${R.close_buy ? `<span class="muted">（11 年回測：收盤價買平均 ${pct(R.close_buy.train.avg)}%／${pct(R.close_buy.test.avg)}%，隔天開盤買 ${pct(R.train.avg)}%／${pct(R.test.avg)}%）</span>` : ""}</div>
     ${T.picks.length ? `<div class="top3-grid">${cards}</div>` : `<div class="empty" style="padding:20px">今天沒有符合條件的股票，寧可空手。</div>`}
     <details class="top3-more" ${innerWidth > 640 ? "open" : ""}><summary>回測成績與前一交易日表現</summary>
     <div class="top3-meta">📊 11 年回測（${R.period}，每天 3 檔、持有 ${R.hold} 天、停損 -${R.stop}%、已扣成本）：訓練期平均 ${pct(R.train.avg)}%、驗證期 ${pct(R.test.avg)}%（站上季線的股票持有 20 天分別 ${pct(R.train.base)}%、${pct(R.test.base)}%）；個股勝率約 ${R.test.win}～${R.train.win}%，<b>超過一半會停損或小賠</b>，獲利來自賺的時候賺比較多；最差一筆 ${R.worst}%。${R.no_stop ? `不停損的話平均較高（${pct(R.no_stop.train)}%、${pct(R.no_stop.test)}%，${R.no_stop.years} 年都贏），但最差一筆曾到 ${R.no_stop.worst}%。` : ""}${h ? ` 網站 2 年回測：平均 ${pct(h.avg)}%、勝率 ${h.win}%（${h.trades} 筆；對照 ${b ? pct(b.avg) + "%" : "–"}）。` : ""}非投資建議。</div>

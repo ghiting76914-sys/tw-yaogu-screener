@@ -250,6 +250,8 @@ TOP3_RESEARCH = {  # research/top3.py、research/top3_stop.py 的結果（2015/0
     "train": {"avg": 2.31, "win": 39.2, "base": 0.09}, "test": {"avg": 2.70, "win": 38.6, "base": 1.11}, "worst": -19.5,
     # 不停損、固定持有 20 天
     "no_stop": {"train": 3.45, "test": 4.20, "worst": -62.7, "years": "12/12"},
+    # 選股當天收盤價買（盤後定價交易 14:00～14:30），停損 -10%：比隔天開盤買每筆多約 1%
+    "close_buy": {"train": {"avg": 3.24, "win": 41.7}, "test": {"avg": 3.71, "win": 41.4}},
 }
 TOP3_MIN_LOTS = 1000
 

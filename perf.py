@@ -1,6 +1,6 @@
 """實際績效追蹤：用每天存下的名單（snapshots.py）與之後的實際股價，計算「照建議操作」的真實結果。
 
-  明日精選 3 檔  選出隔天開盤買進 → 第 20 個交易日收盤賣出；盤中跌破進場價 -10% 就停損
+  明日精選 3 檔  選出當天收盤價買進（盤後定價）→ 第 20 個交易日收盤賣出；盤中跌破進場價 -10% 就停損
   隔日沖        12:30 名單當時的價格買進 → 隔天開盤賣出
   營收動能      換股隔天開盤買進 → 第 20 個交易日收盤賣出
 
@@ -15,6 +15,7 @@ import strategy
 
 COST = strategy.ROUND_TRIP_COST
 MAX_TRADES = 200  # 網站只附最近 200 筆明細；統計仍用全部交易
+TOP3_CLOSE_FROM = "2026-10-13"  # 從這天起精選 3 檔改為當天收盤價買（13:40 推播、盤後定價）；之前照當時建議的隔天開盤買
 
 
 def _snaps():
@@ -45,9 +46,22 @@ def compute(history):
         r = history[i][1].get(code) if 0 <= i < n else None
         return r if r and r["close"] is not None and r["open"] is not None else None
 
-    def hold_trade(sig_date, code, name, hold, stop=None):
-        """隔天開盤買、持有 hold 天；stop 為停損比例（例如 0.10）。"""
+    def hold_trade(sig_date, code, name, hold, stop=None, at_close=False):
+        """隔天開盤買（at_close：當天收盤價買）、持有 hold 天；stop 為停損比例（例如 0.10）。"""
         i = idx.get(sig_date)
+        if at_close:
+            b0 = bar(i, code) if i is not None else None
+            if not b0:
+                return None
+            series = [history[j][1].get(code) for j in range(n)]
+            r = strategy.hold_return_stop(series, i, n, hold, stop, at_close=True)
+            if not r:
+                return None
+            ret, closed, days = r
+            entry = b0["close"]
+            return {"日期": sig_date, "代號": code, "名稱": name, "進場": entry,
+                    "出場": round(entry * (1 + ret / 100), 2), "報酬%": round(ret - (COST if closed else 0), 2),
+                    "狀態": "已出場" if closed else "持有中", "天數": days}
         if i is None or i + 1 >= n:
             return {"日期": sig_date, "代號": code, "名稱": name, "進場": None, "出場": None,
                     "報酬%": None, "狀態": "等待進場", "天數": 0}
@@ -79,7 +93,7 @@ def compute(history):
         d = s["trade_date"]
         if s["mode"] == "final":
             for p in s.get("top3") or []:
-                t = hold_trade(d, p["代號"], p["名稱"], 20, stop=0.10)
+                t = hold_trade(d, p["代號"], p["名稱"], 20, stop=0.10, at_close=d >= TOP3_CLOSE_FROM)
                 if t:
                     top3.append(t)
             for p in s.get("revenue") or []:

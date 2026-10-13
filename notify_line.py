@@ -138,6 +138,12 @@ def lock_line(p):
     return f"今天沒有鎖漲停：照計畫進場回測 {pl['avg']:+.2f}%（勝率 {pl['win']}%），僅供觀察。" if pl else ""
 
 
+def after_hours_open():
+    """現在還趕得上今天的盤後定價交易（14:00～14:30，以收盤價成交）嗎？"""
+    now = dt.datetime.now()
+    return now.hour < 14 or (now.hour == 14 and now.minute < 25)
+
+
 def top3_bubble(data):
     """明日精選 3 檔（營收動能＋突破 60 日新高，持有 20 天）。"""
     rev = data.get("revenue") or {}
@@ -155,15 +161,22 @@ def top3_bubble(data):
             text(" · ".join(p["理由"][:2]), size="xxs", color=MUTED, wrap=True),
         ]
     tr, te = R.get("train", {}), R.get("test", {})
+    cb = R.get("close_buy") or {}
+    today_buy = after_hours_open() and T.get("date") == data["trade_date"] == dt.date.today().isoformat()
+    how = ("🎯 今天盤後定價買進 3 檔" if today_buy else "🎯 明天開盤買進 3 檔")
+    how_note = (f"14:00～14:30 下「盤後定價」買單，以今天收盤價成交；回測比隔天開盤買每筆多約 1%"
+                f"（{cb.get('train', {}).get('avg', 0):+.2f}%～{cb.get('test', {}).get('avg', 0):+.2f}%）。來不及就明天開盤買。"
+                if today_buy else "今天的盤後定價（14:00～14:30）已結束，明天開盤買進。")
     return {
         "type": "bubble", "size": "mega",
         "header": {"type": "box", "layout": "vertical", "backgroundColor": UP, "paddingAll": "16px", "spacing": "xs",
                    "contents": [text(f"明日精選 · {T['date'][5:].replace('-', '/')}", size="xxs", color="#FFE4E1"),
-                                text("🎯 明天開盤買進 3 檔", size="lg", weight="bold", color="#FFFFFF"),
+                                text(how, size="lg", weight="bold", color="#FFFFFF"),
                                 text(f"持有 {T['hold']} 個交易日，跌破進場價 -{T.get('stop', 10)}% 停損", size="xs", color="#FFE4E1")]},
         "body": {"type": "box", "layout": "vertical", "spacing": "md", "paddingAll": "16px", "contents": [
             text("營收創 12 個月新高、年增 > 20%、站上季線，今天收盤突破 60 日新高，依成交值前 3。",
                  size="xs", color=MUTED, wrap=True),
+            text(how_note, size="xs", color=UP if today_buy else INK, weight="bold" if today_buy else "regular", wrap=True),
             {"type": "separator"}, *rows, {"type": "separator"},
             text(f"📊 11 年回測（停損 -{R.get('stop', 10)}%）：每筆平均 {tr.get('avg', 0):+.2f}%～{te.get('avg', 0):+.2f}%，"
                  f"最差 {R.get('worst', 0)}%；超過一半會停損或小賠，請分散並控制資金。",
@@ -258,6 +271,8 @@ def summary_bubble(data):
                  else "回測期間短，不代表未來表現。", size="xs", color=INK, wrap=True),
         ]
     excluded = data.get("insti_excluded") or []
+    if not data.get("insti_ready"):
+        contents.append(text("三大法人買賣超 15:00 後才公布，這份收盤後名單尚未排除法人賣超。", size="xs", color=MUTED, wrap=True))
     if excluded:
         contents.append(text(f"已排除三大法人賣超：{'、'.join(excluded)}", size="xs", color=MUTED, wrap=True))
     more = len(data["picks"]) - MAX_PICKS
@@ -622,7 +637,7 @@ def main():
         # 卡片格式被拒絕時改傳純文字，確保一定收得到
         print(f"Flex 卡片被拒絕（{err[1]}），改傳純文字")
         top = (data.get("revenue") or {}).get("top3") or {}
-        top_text = [f"🎯 明日精選 3 檔（明天開盤買、持有 {top.get('hold', 20)} 天）\n" + "\n".join(
+        top_text = [f"🎯 明日精選 3 檔（{'今天 14:00～14:30 盤後定價買' if after_hours_open() else '明天開盤買'}、持有 {top.get('hold', 20)} 天）\n" + "\n".join(
             f"{p['排名']}. {p['名稱']} {p['代號']}  收 {p['收盤']:g}  營收年增 {p['營收年增%']:+.0f}%" for p in top["picks"])
             ] if top.get("picks") and not preview else []
         main_text = [build_overnight_text(data)] if preview else (top_text + texts)[:4]

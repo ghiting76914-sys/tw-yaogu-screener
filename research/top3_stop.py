@@ -72,7 +72,7 @@ def main():
                 if out is not None:
                     ret = (out / p["entry"] - 1) * 100
                     if -70 < ret < 300:
-                        res[(ex, p["t"] >= split)].append(ret - COST)
+                        res[(p.get("label", ex), p["t"] >= split)].append(ret - COST)
                     continue
             still.append(p)
         positions = still
@@ -96,7 +96,12 @@ def main():
         chosen.sort(reverse=True)
         for _, code in chosen[:3]:
             for ex in EXITS:
-                positions.append({"code": code, "exit": ex, "t": t, "entry": None, "cum": 0.0, "last": None, "k": 0})
+                # 「…收盤買」：選股當天收盤價買進（盤後定價交易），其餘為隔天開盤買
+                close_buy = ex.endswith("收盤買")
+                c0 = day[code][3]
+                positions.append({"code": code, "exit": ex.replace("收盤買", ""), "label": ex, "t": t,
+                                  "entry": c0 if close_buy else None, "cum": 0.0,
+                                  "last": c0 if close_buy else None, "k": 0})
 
     def st(xs):
         xs = sorted(xs)
