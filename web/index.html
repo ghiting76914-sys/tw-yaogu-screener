@@ -879,6 +879,7 @@ function renderDay() {
     const q = today ? alertState.prices[p["代號"]] : null;
     const gap = q && q.open ? (q.open / p["收盤"] - 1) * 100 : null;
     const st = gap == null ? (today ? "等待開盤" : "明天開盤看")
+      : q.open >= p["明日漲停"] ? "開盤就漲停，<b>不要放空</b>（可能整天買不回來）"
       : gap >= g ? `<b class="down">做空</b>：開盤 ${fmt(q.open)}，停損 ${fmt(q.open * (1 + sl / 100))}`
       : gap <= -g ? `<b class="up">做多</b>：開盤 ${fmt(q.open)}，停損 ${fmt(q.open * (1 - sl / 100))}`
       : "跳空不到 3%，不交易";
@@ -893,7 +894,7 @@ function renderDay() {
       <h3>當沖觀察：前一天鎖漲停的股票，看開盤決定方向</h3>
       <div class="muted" style="font-size:13px">${today ? `今天（${twDay(twNow())}）要看的名單：${d.trade_date} 收盤鎖漲停、20 日均量 ≥ 1,000 張。` : `明天要看的名單：${d.trade_date} ${d.live && !d.live.final ? "盤中暫定（收盤後確認）" : "收盤"}鎖漲停、20 日均量 ≥ 1,000 張。`}開啟右上角「🔔 盤中提醒」，開盤跳空達條件時會跳出通知。</div>
       <dl class="plan" style="margin-top:10px">
-        <dt>做空</dt><dd>開盤漲 ≥ ${g}%：<b>開盤價放空</b>，漲到開盤價 +${sl}% 停損買回，否則收盤前（13:25 前）買回。11 年回測 ${v(R.short)}</dd>
+        <dt>做空</dt><dd>開盤漲 ≥ ${g}%（但<b>開盤就漲停的不空</b>，可能整天買不回來）：<b>開盤價放空</b>，漲到開盤價 +${sl}% 停損買回，否則收盤前（13:25 前）買回。11 年回測 ${v(R.short)}</dd>
         <dt>做多</dt><dd>開盤跌 ≥ ${g}%：<b>開盤價買進</b>，跌到開盤價 -${sl}% 停損，否則收盤前賣出。11 年回測 ${v(R.long)}，兩段期間差距大、較不穩定</dd>
         <dt>不交易</dt><dd>開盤跳空不到 ${g}%</dd>
         <dt>風險</dt><dd><b>放空可能被軋</b>：這類股票約 ${R.squeeze}% 收盤被拉到漲停，漲停鎖死時停損單可能買不回來（要標借或違約交割，損失可能遠大於 ${sl}%）。
@@ -968,7 +969,7 @@ function alertTargets() {
     const D = d.daytrade, g = D.rules.gap, sl = D.rules.stop;
     D.list.forEach((p) => out.push({ key: `day-${p["代號"]}`, code: p["代號"], name: p["名稱"], kind: "當沖",
       desc: `開盤 ≥ ${fmt(p["做空觸發"])} 放空／≤ ${fmt(p["做多觸發"])} 做多`,
-      hit: (q) => q.open != null && Math.abs((q.open / p["收盤"] - 1) * 100) >= g - 1e-9,
+      hit: (q) => q.open != null && Math.abs((q.open / p["收盤"] - 1) * 100) >= g - 1e-9 && q.open < p["明日漲停"],
       msg: (q) => {
         const gap = (q.open / p["收盤"] - 1) * 100, short = gap > 0;
         return `當沖${short ? "做空" : "做多"}候選：開盤 ${fmt(q.open)}（${pct(gap)}%），${short ? "開盤價放空" : "開盤價買進"}，`
@@ -1344,8 +1345,8 @@ function renderPerf() {
       `每筆平均 ${pct(O.train ? O.train.avg : null)}%～${pct(O.test ? O.test.avg : null)}%，勝率約 ${O.train ? O.train.win : "–"}～${O.test ? O.test.win : "–"}%（11 年）`)}
     ${block("overnight_limit", "⚡ 隔日沖（掛 +2% 限價賣）", "同一份名單，隔天掛買進價 +2% 的限價單，盤中碰到就賣、沒碰到收盤賣。",
       `每筆平均 ${pct(O.exit_limit ? O.exit_limit.train.avg : null)}%～${pct(O.exit_limit ? O.exit_limit.test.avg : null)}%，勝率約 ${O.exit_limit ? O.exit_limit.train.win : "–"}～${O.exit_limit ? O.exit_limit.test.win : "–"}%（11 年）`)}
-    ${P.daytrade ? block("daytrade", "⚡ 當沖觀察", "前一天鎖漲停的股票：開高 ≥3% 開盤放空、開低 ≤-3% 開盤做多，停損 5%，收盤出場；跳空不到 3% 不交易。已扣當沖成本 0.435%。",
-      `做空每筆平均 +0.59%～+0.73%（勝率約 43%），做多 +0.37%～+2.49%（11 年）`) : ""}
+    ${P.daytrade ? block("daytrade", "⚡ 當沖觀察", "前一天鎖漲停的股票：開高 ≥3% 開盤放空（開盤漲停不空）、開低 ≤-3% 開盤做多，停損 5%，收盤出場；跳空不到 3% 不交易。已扣當沖成本 0.435%。",
+      `做空每筆平均 +0.56%～+0.58%（勝率約 47%），做多 +0.37%～+2.49%（11 年）`) : ""}
     ${block("revenue", "📊 營收動能", "換股隔天開盤平均買進 20 檔，持有 20 個交易日。",
       `${R.months || "–"} 個月中 ${R.beat || "–"} 個月贏過大盤，平均每月多 ${pct(R.excess)}%（11 年）`)}
     ${allocation()}`;

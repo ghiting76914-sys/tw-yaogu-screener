@@ -65,6 +65,8 @@ def main():
             for base in tg:
                 if base == "全部":
                     continue
+                if gap >= 3 and o < tick_floor(prev * 1.1):
+                    g.append(f"{base}＋開高≥3%未漲停")
                 if gap >= 3:
                     g.append(f"{base}＋開高≥3%")
                 elif gap <= 0:

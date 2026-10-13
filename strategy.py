@@ -827,11 +827,12 @@ def _overnight_check(s, t):
 
 
 # ---------------------------------------------------------------- 當沖觀察（research/daytrade.py）
-# 前一天收盤鎖漲停的股票，隔天依開盤決定方向：開高 ≥ 3% 開盤放空、開低 ≤ -3% 開盤做多，停損 5%，收盤前出場
+# 前一天收盤鎖漲停的股票，隔天依開盤決定方向：開高 ≥ 3% 開盤放空（開盤就漲停的不空，可能整天買不回來）、
+# 開低 ≤ -3% 開盤做多，停損 5%，收盤前出場
 DAYTRADE = {"gap": 3.0, "stop": 5.0, "min_lots": 1000, "min_price": 10, "cost": 0.435}
 DAYTRADE_RESEARCH = {
     "period": "2015/04～2026/10",
-    "short": {"train": {"avg": 0.73, "win": 43.2}, "test": {"avg": 0.59, "win": 43.5}, "squeeze": 40},
+    "short": {"train": {"avg": 0.58, "win": 47.7}, "test": {"avg": 0.56, "win": 47.4}, "squeeze": 32},
     "long": {"train": {"avg": 0.37, "win": 49.7}, "test": {"avg": 2.49, "win": 62.6}},
     "long_all": -0.69,   # 所有股票開盤買、收盤賣的平均（做多當沖整體是虧的）
 }
@@ -855,7 +856,7 @@ def daytrade_watch(history, ref=None):
             continue
         c = r["close"]
         out.append({"代號": code, "名稱": r["name"], "市場": r["market"], "收盤": c,
-                    "做空觸發": tick_ceil(c * (1 + DAYTRADE["gap"] / 100)),
+                    "做空觸發": tick_ceil(c * (1 + DAYTRADE["gap"] / 100)), "明日漲停": tick_floor(c * 1.1),
                     "做多觸發": tick_floor(c * (1 - DAYTRADE["gap"] / 100)),
                     "均量": round(sum(vols) / 20 / 1000)})
     out.sort(key=lambda p: -p["均量"])
@@ -867,6 +868,8 @@ def daytrade_result(o, h, l, c, prev_close):
     gap = (o / prev_close - 1) * 100
     stop = DAYTRADE["stop"] / 100
     if gap >= DAYTRADE["gap"]:
+        if o >= tick_floor(prev_close * 1.1):
+            return None, None  # 開盤就漲停：不放空
         ret = -DAYTRADE["stop"] if h >= o * (1 + stop) else (o / c - 1) * 100
         return "做空", round(ret - DAYTRADE["cost"], 2)
     if gap <= -DAYTRADE["gap"]:
