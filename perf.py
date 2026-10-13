@@ -88,7 +88,7 @@ def compute(history):
         return {"日期": sig_date, "代號": code, "名稱": name, "進場": entry, "出場": bars[-1][1]["close"],
                 "報酬%": round(ret, 2), "狀態": "已出場" if closed else "持有中", "天數": len(bars)}
 
-    top3, overnight, overnight_limit, rev = [], [], [], []
+    top3, overnight, overnight_limit, rev, daytrade = [], [], [], [], []
     for s in _snaps():
         d = s["trade_date"]
         if s["mode"] == "final":
@@ -96,6 +96,19 @@ def compute(history):
                 t = hold_trade(d, p["代號"], p["名稱"], 20, stop=0.10, at_close=d >= TOP3_CLOSE_FROM)
                 if t:
                     top3.append(t)
+            # 當沖觀察：隔天依開盤方向，開盤進、收盤出（停損 5%）；沒有跳空 3% 的不交易
+            i = idx.get(d)
+            for p in s.get("daytrade") or []:
+                b = bar(i + 1, p["代號"]) if i is not None else None
+                if b is None:
+                    if i is not None and i + 1 >= n:
+                        daytrade.append({"日期": d, "代號": p["代號"], "名稱": p["名稱"], "進場": None, "出場": None,
+                                         "報酬%": None, "狀態": "等待明天開盤", "天數": 0})
+                    continue
+                side, ret = strategy.daytrade_result(b["open"], b["high"], b["low"], b["close"], p["價格"])
+                if side:
+                    daytrade.append({"日期": history[i + 1][0].isoformat(), "代號": p["代號"], "名稱": f"{p['名稱']}（{side}）",
+                                     "進場": b["open"], "出場": b["close"], "報酬%": ret, "狀態": "已出場", "天數": 1})
             for p in s.get("revenue") or []:
                 t = hold_trade(d, p["代號"], p["名稱"], 20)
                 if t:
@@ -115,7 +128,7 @@ def compute(history):
                                         "報酬%": round((lim / p["價格"] - 1) * 100 - COST, 2) if lim else None,
                                         "狀態": "已出場" if lim else "等待隔天", "天數": 1 if lim else 0})
     out = {}
-    for key, trades in (("top3", top3), ("overnight", overnight), ("overnight_limit", overnight_limit), ("revenue", rev)):
+    for key, trades in (("top3", top3), ("overnight", overnight), ("overnight_limit", overnight_limit), ("revenue", rev), ("daytrade", daytrade)):
         trades.sort(key=lambda x: (x["日期"], x["代號"]), reverse=True)
         out[key] = {"summary": _summary(trades), "trades": trades[:MAX_TRADES]}
     out["since"] = min((s["trade_date"] for s in _snaps()), default=None)

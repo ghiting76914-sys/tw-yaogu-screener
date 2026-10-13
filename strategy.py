@@ -826,6 +826,55 @@ def _overnight_check(s, t):
             "vol_ratio": vol_ratio, "limit": pct >= 9.5, "first": is_first_bar(past, vol_ratio, vol20)}
 
 
+# ---------------------------------------------------------------- 當沖觀察（research/daytrade.py）
+# 前一天收盤鎖漲停的股票，隔天依開盤決定方向：開高 ≥ 3% 開盤放空、開低 ≤ -3% 開盤做多，停損 5%，收盤前出場
+DAYTRADE = {"gap": 3.0, "stop": 5.0, "min_lots": 1000, "min_price": 10, "cost": 0.435}
+DAYTRADE_RESEARCH = {
+    "period": "2015/04～2026/10",
+    "short": {"train": {"avg": 0.73, "win": 43.2}, "test": {"avg": 0.59, "win": 43.5}, "squeeze": 40},
+    "long": {"train": {"avg": 0.37, "win": 49.7}, "test": {"avg": 2.49, "win": 62.6}},
+    "long_all": -0.69,   # 所有股票開盤買、收盤賣的平均（做多當沖整體是虧的）
+}
+
+
+def daytrade_watch(history, ref=None):
+    """今天收盤鎖漲停、20 日均量 ≥ 1000 張的一般股：明天的當沖觀察名單與觸發價。"""
+    series = build_series(history)
+    t = len(history) - 1
+    disposal = (ref or {}).get("disposal") or set()
+    out = []
+    for code, s in series.items():
+        r = s[t]
+        if code in disposal or not r or None in (r["close"], r["change"]) or len(code) != 4 or code[0] == "0":
+            continue
+        prev = r["close"] - r["change"]
+        if prev <= 0 or r["close"] < DAYTRADE["min_price"] or r["close"] < tick_floor(prev * 1.1):
+            continue
+        vols = [x["volume"] for x in s[max(0, t - 19):t + 1] if x and x["volume"] is not None]
+        if len(vols) < 20 or sum(vols) / 20 < DAYTRADE["min_lots"] * 1000:
+            continue
+        c = r["close"]
+        out.append({"代號": code, "名稱": r["name"], "市場": r["market"], "收盤": c,
+                    "做空觸發": tick_ceil(c * (1 + DAYTRADE["gap"] / 100)),
+                    "做多觸發": tick_floor(c * (1 - DAYTRADE["gap"] / 100)),
+                    "均量": round(sum(vols) / 20 / 1000)})
+    out.sort(key=lambda p: -p["均量"])
+    return out
+
+
+def daytrade_result(o, h, l, c, prev_close):
+    """依開盤決定方向，回傳 (方向, 報酬%（已扣成本）)；開盤沒有跳空 3% 回傳 (None, None)。"""
+    gap = (o / prev_close - 1) * 100
+    stop = DAYTRADE["stop"] / 100
+    if gap >= DAYTRADE["gap"]:
+        ret = -DAYTRADE["stop"] if h >= o * (1 + stop) else (o / c - 1) * 100
+        return "做空", round(ret - DAYTRADE["cost"], 2)
+    if gap <= -DAYTRADE["gap"]:
+        ret = -DAYTRADE["stop"] if l <= o * (1 - stop) else (c / o - 1) * 100
+        return "做多", round(ret - DAYTRADE["cost"], 2)
+    return None, None
+
+
 def overnight_picks(history, ref):
     series = build_series(history)
     t = len(history) - 1

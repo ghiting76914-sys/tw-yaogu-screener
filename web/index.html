@@ -390,6 +390,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
 
   <nav class="tabs" id="tabs">
     <button data-v="overnight">隔日沖<span class="count num" id="cntOvernight">–</span></button>
+    <button data-v="day">當沖<span class="count num" id="cntDay">–</span></button>
     <button data-v="rev">營收動能<span class="count num" id="cntRev">–</span></button>
     <button data-v="perf">實際績效</button>
     <button data-v="etf">ETF 專區<span class="count" id="etfTemp">–</span></button>
@@ -473,6 +474,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
       <div class="picks" id="picks"></div>
     </div>
     <div id="overnightView" hidden></div>
+    <div id="dayView" hidden></div>
     <div id="perfView" hidden></div>
     <div id="revView" hidden></div>
     <div id="etfView" hidden></div>
@@ -609,6 +611,7 @@ async function runScreen(silent = false) {
     renderEtf();
     renderRev();
     renderOvernight();
+    renderDay();
     renderTop3();
     renderPerf();
     alertSetup();
@@ -779,6 +782,7 @@ function listFor(view) {
   if (view === "pre") return state.data.pre || [];
   if (view === "rev") return (state.data.revenue && state.data.revenue.picks) || [];
   if (view === "overnight") return state.data.overnight || [];
+  if (view === "day") return ((state.data.daytrade || {}).list || []).filter((p) => findStock(p["代號"]));
   if (view === "perf") return [];
   return state.rows;
 }
@@ -794,7 +798,7 @@ function findStock(code) {
 
 async function select(code) {
   state.selected = code;
-  document.querySelectorAll("#tbody tr, #revView tr[data-code], #overnightView tr[data-code]").forEach((tr) => tr.classList.toggle("sel", tr.dataset.code === code));
+  document.querySelectorAll("#tbody tr, #revView tr[data-code], #overnightView tr[data-code], #dayView tr[data-code]").forEach((tr) => tr.classList.toggle("sel", tr.dataset.code === code));
   document.querySelectorAll(".pick, .top3-card").forEach((el) => el.classList.toggle("sel", el.dataset.code === code));
   const r = findStock(code);
   if (!r) return;
@@ -857,6 +861,57 @@ async function select(code) {
   if (!STATIC && state.data.market_open) pollQuote(code);
 }
 
+// ---------------------------------------------------------------- 當沖觀察
+
+// 名單是否為「今天」要盯的（前一交易日收盤後產生、還沒到 12:30 盤中預覽）
+function dayListIsToday() {
+  const d = state.data;
+  return !!(d && d.daytrade && !(d.live && !d.live.final) && d.trade_date < twDay(twNow()));
+}
+
+function renderDay() {
+  const d = state.data;
+  if (!d || !d.daytrade) return;
+  const D = d.daytrade, R = D.research, g = D.rules.gap, sl = D.rules.stop;
+  $("cntDay").textContent = D.list.length;
+  const today = dayListIsToday();
+  const rows = D.list.map((p) => {
+    const q = today ? alertState.prices[p["代號"]] : null;
+    const gap = q && q.open ? (q.open / p["收盤"] - 1) * 100 : null;
+    const st = gap == null ? (today ? "等待開盤" : "明天開盤看")
+      : gap >= g ? `<b class="down">做空</b>：開盤 ${fmt(q.open)}，停損 ${fmt(q.open * (1 + sl / 100))}`
+      : gap <= -g ? `<b class="up">做多</b>：開盤 ${fmt(q.open)}，停損 ${fmt(q.open * (1 - sl / 100))}`
+      : "跳空不到 3%，不交易";
+    return `<tr data-code="${p["代號"]}" class="${p["代號"] === state.selected ? "sel" : ""}">
+      <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span></td>
+      <td class="num">${fmt(p["收盤"])}</td><td class="num">${fmt(p["做空觸發"])}</td><td class="num">${fmt(p["做多觸發"])}</td>
+      <td class="num">${gap == null ? "–" : pct(gap) + "%"}</td><td class="l">${st}</td></tr>`;
+  }).join("");
+  const v = (x) => `${pct(x.train.avg)}%／${pct(x.test.avg)}%（勝率 ${x.train.win}%／${x.test.win}%）`;
+  $("dayView").innerHTML = `
+    <div class="banner">
+      <h3>當沖觀察：前一天鎖漲停的股票，看開盤決定方向</h3>
+      <div class="muted" style="font-size:13px">${today ? `今天（${twDay(twNow())}）要看的名單：${d.trade_date} 收盤鎖漲停、20 日均量 ≥ 1,000 張。` : `明天要看的名單：${d.trade_date} ${d.live && !d.live.final ? "盤中暫定（收盤後確認）" : "收盤"}鎖漲停、20 日均量 ≥ 1,000 張。`}開啟右上角「🔔 盤中提醒」，開盤跳空達條件時會跳出通知。</div>
+      <dl class="plan" style="margin-top:10px">
+        <dt>做空</dt><dd>開盤漲 ≥ ${g}%：<b>開盤價放空</b>，漲到開盤價 +${sl}% 停損買回，否則收盤前（13:25 前）買回。11 年回測 ${v(R.short)}</dd>
+        <dt>做多</dt><dd>開盤跌 ≥ ${g}%：<b>開盤價買進</b>，跌到開盤價 -${sl}% 停損，否則收盤前賣出。11 年回測 ${v(R.long)}，兩段期間差距大、較不穩定</dd>
+        <dt>不交易</dt><dd>開盤跳空不到 ${g}%</dd>
+        <dt>風險</dt><dd><b>放空可能被軋</b>：這類股票約 ${R.squeeze}% 收盤被拉到漲停，漲停鎖死時停損單可能買不回來（要標借或違約交割，損失可能遠大於 ${sl}%）。
+          現股當沖「先賣後買」需開通當沖資格或信用戶。整體而言，所有股票開盤買、收盤賣平均 ${R.long_all}%，當沖做多大多是虧的</dd>
+      </dl>
+      <p class="research">只有日 K 資料，回測以「開盤價進、收盤價出」計算，停損以當天最高／最低價是否碰到判斷（偏保守）；已扣手續費與當沖證交稅 ${D.rules.cost}%。非投資建議，請控制部位。</p>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <div class="table-wrap" style="max-height:none">
+        <table>
+          <thead><tr><th class="l">股票</th><th>前一天收盤（漲停）</th><th>做空：開盤 ≥</th><th>做多：開盤 ≤</th><th>開盤跳空</th><th class="l">今天動作</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${D.list.length ? "" : `<div class="empty">沒有符合條件的股票（前一天沒有均量 1,000 張以上、收盤鎖漲停的股票）。</div>`}
+      </div>
+    </div>`;
+}
+
 // ---------------------------------------------------------------- 盤中到價提醒（網頁通知）
 // 靜態網站無法直接讀證交所即時行情（沒有開放跨網域），透過自己的 Cloudflare Worker 轉接（cloudflare/worker.js）；
 // 盤中每 30 秒查一次所有監看中的股票，到價時跳出瀏覽器通知與提示音，每個價位每天只提醒一次。
@@ -902,12 +957,24 @@ function alertTargets() {
   }
   const out = [];
   picks.forEach((p) => out.push({ key: `picks-${p.code}`, code: p.code, name: p.name, kind: "明日強勢候選",
-    desc: `進場區間 ${fmt(p.lo)}～${fmt(p.hi)}`, hit: (x) => x >= p.lo && x <= p.hi }));
+    desc: `進場區間 ${fmt(p.lo)}～${fmt(p.hi)}`, hit: (q) => q.price >= p.lo && q.price <= p.hi }));
   pre.forEach((p) => out.push({ key: `pre-${p.code}`, code: p.code, name: p.name, kind: "起漲前夕",
-    desc: `突破價 ${fmt(p.trig)}`, hit: (x) => x >= p.trig }));
+    desc: `突破價 ${fmt(p.trig)}`, hit: (q) => q.price >= p.trig }));
   const dip = d.etf && d.etf.dip;
   if (dip) dip.prices.filter((x) => !x.hit && x.level <= 10).forEach((x) => out.push({ key: `etf-${x.level}`, code: "0050", name: "元大台灣50",
-    kind: "0050 回檔", desc: `回檔 ${x.level}%（${x.label}）${fmt(x.price)}`, hit: (v) => v <= x.price }));
+    kind: "0050 回檔", desc: `回檔 ${x.level}%（${x.label}）${fmt(x.price)}`, hit: (q) => q.price <= x.price }));
+  // 當沖觀察：開盤跳空 ≥ 3% 時通知方向與停損價
+  if (dayListIsToday()) {
+    const D = d.daytrade, g = D.rules.gap, sl = D.rules.stop;
+    D.list.forEach((p) => out.push({ key: `day-${p["代號"]}`, code: p["代號"], name: p["名稱"], kind: "當沖",
+      desc: `開盤 ≥ ${fmt(p["做空觸發"])} 放空／≤ ${fmt(p["做多觸發"])} 做多`,
+      hit: (q) => q.open != null && Math.abs((q.open / p["收盤"] - 1) * 100) >= g - 1e-9,
+      msg: (q) => {
+        const gap = (q.open / p["收盤"] - 1) * 100, short = gap > 0;
+        return `當沖${short ? "做空" : "做多"}候選：開盤 ${fmt(q.open)}（${pct(gap)}%），${short ? "開盤價放空" : "開盤價買進"}，`
+          + `停損 ${fmt(q.open * (short ? 1 + sl / 100 : 1 - sl / 100))}，收盤前出場`;
+      } }));
+  }
   return out;
 }
 
@@ -934,7 +1001,8 @@ async function alertFetchOnce(codes) {
       const b = parseFloat((r.b || "").split("_")[0]), a = parseFloat((r.a || "").split("_")[0]);
       p = b > 0 ? b : a > 0 ? a : NaN;
     }
-    if (p > 0) out[r.c] = { price: p, time: r.t };
+    const op = parseFloat(r.o);
+    if (p > 0) out[r.c] = { price: p, open: op > 0 ? op : null, time: r.t };
   }
   return out;
 }
@@ -960,9 +1028,9 @@ function alertToast(text) {
   setTimeout(() => el.remove(), 60000);
 }
 
-function alertFire(t, price) {
-  const title = `🔔 ${t.name} ${t.code} 到價`;
-  const body = `${t.kind}：${t.desc}，現價 ${fmt(price)}`;
+function alertFire(t, q) {
+  const title = `🔔 ${t.name} ${t.code} ${t.kind === "當沖" ? "開盤跳空" : "到價"}`;
+  const body = t.msg ? t.msg(q) : `${t.kind}：${t.desc}，現價 ${fmt(q.price)}`;
   try {
     if ("Notification" in window && Notification.permission === "granted") new Notification(title, { body, tag: t.key });
   } catch (e) { /* 部分手機瀏覽器不支援，改用頁面提示 */ }
@@ -1006,7 +1074,8 @@ async function alertTick() {
       Object.assign(alertState.prices, q);
       alertState.error = null;
       alertState.last = twNow().toTimeString().slice(0, 8);
-      for (const t of todo) if (q[t.code] && t.hit(q[t.code].price)) alertFire(t, q[t.code].price);
+      for (const t of todo) if (q[t.code] && t.hit(q[t.code])) alertFire(t, q[t.code]);
+      if (state.view === "day") renderDay();
     } catch (e) {
       alertState.error = e.message || "網路錯誤";
     }
@@ -1275,6 +1344,8 @@ function renderPerf() {
       `每筆平均 ${pct(O.train ? O.train.avg : null)}%～${pct(O.test ? O.test.avg : null)}%，勝率約 ${O.train ? O.train.win : "–"}～${O.test ? O.test.win : "–"}%（11 年）`)}
     ${block("overnight_limit", "⚡ 隔日沖（掛 +2% 限價賣）", "同一份名單，隔天掛買進價 +2% 的限價單，盤中碰到就賣、沒碰到收盤賣。",
       `每筆平均 ${pct(O.exit_limit ? O.exit_limit.train.avg : null)}%～${pct(O.exit_limit ? O.exit_limit.test.avg : null)}%，勝率約 ${O.exit_limit ? O.exit_limit.train.win : "–"}～${O.exit_limit ? O.exit_limit.test.win : "–"}%（11 年）`)}
+    ${P.daytrade ? block("daytrade", "⚡ 當沖觀察", "前一天鎖漲停的股票：開高 ≥3% 開盤放空、開低 ≤-3% 開盤做多，停損 5%，收盤出場；跳空不到 3% 不交易。已扣當沖成本 0.435%。",
+      `做空每筆平均 +0.59%～+0.73%（勝率約 43%），做多 +0.37%～+2.49%（11 年）`) : ""}
     ${block("revenue", "📊 營收動能", "換股隔天開盤平均買進 20 檔，持有 20 個交易日。",
       `${R.months || "–"} 個月中 ${R.beat || "–"} 個月贏過大盤，平均每月多 ${pct(R.excess)}%（11 年）`)}
     ${allocation()}`;
@@ -1675,6 +1746,7 @@ function setView(v) {
   $("etfView").hidden = v !== "etf";
   $("revView").hidden = v !== "rev";
   $("overnightView").hidden = v !== "overnight";
+  $("dayView").hidden = v !== "day";
   $("perfView").hidden = v !== "perf";
   if (v === "etf") { renderEtfDetail(); return; }
   if (v === "perf") { showEmptyDetail(); return; }
@@ -1838,6 +1910,10 @@ $("perfView").addEventListener("click", (e) => {
   const tr = e.target.closest("tr[data-code]");
   if (tr) select(tr.dataset.code);
 });
+$("dayView").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-code]");
+  if (tr && findStock(tr.dataset.code)) select(tr.dataset.code);
+});
 $("overnightView").addEventListener("click", (e) => {
   const tr = e.target.closest("tr[data-code]");
   if (tr) select(tr.dataset.code);
@@ -1878,7 +1954,7 @@ renderHead();
   const h = location.hash.slice(1);
   const now = new Date(), hm = now.getHours() * 100 + now.getMinutes(), wd = now.getDay();
   const intraday = wd >= 1 && wd <= 5 && hm >= 900 && hm <= 1330;
-  setView(["overnight", "picks", "pre", "rev", "etf", "perf", "radar"].includes(h) ? h : (intraday ? "overnight" : "rev"));
+  setView(["overnight", "day", "picks", "pre", "rev", "etf", "perf", "radar"].includes(h) ? h : (intraday ? "overnight" : "rev"));
 }
 runScreen();
 </script>

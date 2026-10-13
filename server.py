@@ -57,6 +57,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         # 另外算出完整明細（分數、漲幅、週轉率等），讓右側明細不缺欄位
         rev = _revenue_summary(history)
         overnight = strategy.overnight_picks(history, res["ref"])
+        daytrade = strategy.daytrade_watch(history, res["ref"])
         # 明日強勢候選中，今天 12:30 隔日沖名單也有的股票（盤中執行時就用當下的名單）
         snap = snapshots._load(trade_date.isoformat(), "preview")
         on_codes = {p["代號"] for p in (snap or {}).get("overnight", [])} | (
@@ -67,7 +68,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         detail_args = types.SimpleNamespace(**{**vars(args), "min_volume": 0})
         details = {}
         top3_picks = ((rev or {}).get("top3") or {}).get("picks", [])
-        for p in picks + pre + overnight + (rev["picks"] if rev else []) + top3_picks:
+        for p in picks + pre + overnight + daytrade + (rev["picks"] if rev else []) + top3_picks:
             code = p["代號"]
             if code not in known and code not in details:
                 row = yaogu.analyze(code, history, res["ref"], detail_args)
@@ -90,6 +91,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             "insti_excluded": excluded, "details": details, "etf": _etf_summary(), "etfs": etf.others(),
             "pre_total": pre_total[0] if pre_total else len(pre), "revenue": rev,
             "overnight": overnight, "overnight_backtest": _backtests[bt_key][2],
+            "daytrade": {"list": daytrade, "rules": strategy.DAYTRADE, "research": strategy.DAYTRADE_RESEARCH},
             "overnight_research": strategy.OVERNIGHT_RESEARCH, "previous": previous,
             "pivot_stats": _backtests[bt_key][3]}
     try:
