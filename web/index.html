@@ -170,7 +170,7 @@ tbody tr.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); 
 .sc-head h2 { margin: 0; font-size: 20px; }
 .sc-head .px { font-size: 24px; font-weight: 700; }
 .sc-close { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 0 4px; }
-.sc-zone { background: var(--panel-2); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; }
+.sc-zone { background: var(--panel-2); border-radius: 12px; padding: 10px 14px; margin-top: 10px; }
 .sc-zone b { font-size: 18px; margin-left: 8px; }
 .sc-live { margin-top: 8px; font-size: 13.5px; display: block; }
 .sc-live .live { margin-right: 6px; }
@@ -1021,14 +1021,19 @@ function showStock(code) {
   el.innerHTML = `
     <div class="sc-head">
       <h2>${esc(x.n)} <span class="code num">${code}</span><span class="mkt">${x.m}</span></h2>
-      <span class="px num ${x.p > 0 ? "up" : x.p < 0 ? "down" : ""}">${fmt(x.c)}</span>
-      <span class="num ${x.p > 0 ? "up" : x.p < 0 ? "down" : ""}">${x.p == null ? "" : pct(x.p) + "%"}</span>
-      <span class="muted" style="font-size:12px">${searchData.date} 收盤</span>
+      <span id="scPx" class="px num ${x.p > 0 ? "up" : x.p < 0 ? "down" : ""}">${fmt(x.c)}</span>
+      <span id="scPct" class="num ${x.p > 0 ? "up" : x.p < 0 ? "down" : ""}">${x.p == null ? "" : pct(x.p) + "%"}</span>
+      <span id="scPxNote" class="muted" style="font-size:12px">${searchData.date} 收盤（讀取即時價…）</span>
       <button class="sc-close" type="button" aria-label="關閉" id="scClose">×</button>
     </div>
-    <div id="scLive" class="sc-live muted">讀取即時價…</div>
+    <div id="scLive" class="sc-live muted"></div>
     <div class="sc-verdict ${v.cls}"><b class="lv">${v.lv}</b><div style="margin-top:4px;font-size:13.5px">${v.why}</div>
       ${x.tags.length ? `<div style="margin-top:6px;font-size:12.5px" class="muted">在今天的名單：${x.tags.map((t) => TAG_NAMES[t] || t).join("、")}</div>` : ""}</div>
+    <div class="sc-zone">${zone
+      ? `<span class="muted">建議進場區間</span><b class="num">${zone.lo == null ? "現價" : fmt(zone.lo)} ～ ${fmt(zone.hi)}</b><span id="scZoneNow"></span>
+         <div class="muted" style="font-size:12.5px;margin-top:2px">${zone.note}</div>`
+      : `<span class="muted">建議進場區間</span><b style="font-size:15px">目前沒有</b>
+         <div class="muted" style="font-size:12.5px;margin-top:2px">這檔目前不符合回測驗證過的買進條件（${esc(v.lv)}），所以不給進場價；符合條件時這裡會顯示區間。</div>`}</div>
     <div class="sc-grid">
       <div>
         <h4>條件檢查</h4>
@@ -1036,9 +1041,6 @@ function showStock(code) {
         <h4 style="margin-top:12px">近 20 日走勢</h4>${sparkSvg(x.spark)}
       </div>
       <div>
-        ${zone ? `<div class="sc-zone"><span class="muted">建議進場區間</span>
-          <b class="num">${zone.lo == null ? "現價" : fmt(zone.lo)} ～ ${fmt(zone.hi)}</b>
-          <div class="muted" style="font-size:12.5px;margin-top:2px">${zone.note}</div></div>` : ""}
         ${v.swing ? `<h4>波段點位（精選 3 檔的回測規則）</h4>
         <table class="sc-levels num">
           <tr><td>進場</td><td class="v">${fmt(x.c)}</td><td class="h">${searchData.date === twDay(twNow()) ? "今天 14:00～14:30 盤後定價，或明天開盤" : `${searchData.date.slice(5).replace("-", "/")} 收盤價；之後進場請以實際買價重算停損`}</td></tr>
@@ -1077,11 +1079,11 @@ async function pollLive() {
   clearTimeout(liveTimer);
   const ls = liveStock, el = $("scLive");
   if (!ls || !el || $("searchCard").hidden) return;
-  if (STATIC && !ALERT_WORKER) { el.textContent = ""; return; }
+  if (STATIC && !ALERT_WORKER) { $("scPxNote").textContent = `${searchData.date} 收盤`; return; }
   try {
     const q = (await alertFetch([ls.code]))[ls.code];
     if (liveStock !== ls) return;
-    if (!q) { el.innerHTML = "即時價暫時讀不到（可能暫停交易）"; }
+    if (!q) { $("scPxNote").textContent = `${searchData.date} 收盤（即時價暫時讀不到，可能暫停交易）`; }
     else {
       const x = ls.x, base = q.prev || x.c, chg = (q.price / base - 1) * 100;
       const cls = chg > 0 ? "up" : chg < 0 ? "down" : "";
@@ -1090,15 +1092,20 @@ async function pollLive() {
       const where = q.price >= pv.R2 ? "已過壓力 R2" : q.price >= pv.R1 ? "在 R1～R2 之間" : q.price > pv.S1 ? "在 S1～R1 之間"
         : q.price > pv.S2 ? "在 S2～S1 之間" : "已跌破支撐 S2";
       const today = q.prev && Math.abs(q.prev - x.c) < 1e-6;  // 即時資料的昨收 = 搜尋資料的收盤 → 點位就是今天的參考
-      el.innerHTML = `<span class="live ${inMarketHours() ? "pulse" : "done"}">即時 ${esc((q.time || "").slice(0, 5))}</span>
-        <b class="num ${cls}" style="font-size:18px">${fmt(q.price)}</b> <span class="num ${cls}">${pct(chg)}%</span>
-        ${q.high ? `<span class="num">高 ${fmt(q.high)}　低 ${fmt(q.low)}</span>` : ""}
-        ${q.traded ? "" : '<span class="muted">（這一刻無成交，顯示委買價）</span>'}
-        ${ls.zone && ls.zone.lo != null ? `<div style="margin-top:4px;font-size:13px">${q.price < ls.zone.lo ? '<b class="down">低於建議進場區間（轉弱，先不買）</b>' : q.price > ls.zone.hi ? "高於區間" : '<b class="up">✓ 在建議進場區間內</b>'}</div>` : ""}
+      $("scPx").textContent = fmt(q.price);
+      $("scPx").className = `px num ${cls}`;
+      $("scPct").innerHTML = `${pct(chg)}%`;
+      $("scPct").className = `num ${cls}`;
+      $("scPxNote").innerHTML = `<span class="live ${inMarketHours() ? "pulse" : "done"}">即時 ${esc((q.time || "").slice(0, 5))}</span>${q.traded ? "" : " 這一刻無成交，顯示委買價"}`;
+      const zn = $("scZoneNow");
+      if (zn && ls.zone) zn.innerHTML = ls.zone.lo != null && q.price < ls.zone.lo ? ' <b class="down">現價低於區間（轉弱，先不買）</b>'
+        : q.price > ls.zone.hi ? ' <span class="muted">現價高於區間</span>' : ' <b class="up">✓ 現價在區間內</b>';
+      el.innerHTML = `<span class="num">${searchData.date.slice(5).replace("-", "/")} 收盤 ${fmt(x.c)}（${x.p == null ? "–" : pct(x.p) + "%"}）</span>
+        ${q.high ? `<span class="num">今日 高 ${fmt(q.high)}　低 ${fmt(q.low)}</span>` : ""}
         <div style="margin-top:4px;font-size:12.5px">${today ? `${where}；距 R1 ${d(pv.R1)}、S1 ${d(pv.S1)}` : "點位是以最新收盤計算的下一個交易日參考"}${ls.swing ? `；距停損 ${d(x.c * 0.9)}` : ""}</div>`;
     }
   } catch (e) {
-    el.innerHTML = `即時價讀取失敗（${esc(alertErrorText(e))}），稍後重試`;
+    $("scPxNote").textContent = `${searchData.date} 收盤（即時價讀取失敗：${alertErrorText(e)}，稍後重試）`;
   }
   if (inMarketHours()) liveTimer = setTimeout(pollLive, 20000);
 }
