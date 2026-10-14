@@ -50,7 +50,15 @@ def main():
             if name.endswith(".json"):
                 with open(os.path.join(snapshots.SNAP_DIR, name), encoding="utf-8") as fh:
                     archive[name] = json.load(fh)
-    for name, obj in (("latest.json", data), ("charts.json", charts), ("snapshots.json", archive)):
+    # 個股搜尋資料（網頁搜尋時才載入）
+    import search
+    try:
+        search_data = search.build(server._histories[date_key], server._last_ref.get("ref"), data)
+    except Exception as e:
+        print(f"個股搜尋資料產生失敗：{e}")
+        search_data = {"date": data["trade_date"], "stocks": {}}
+    for name, obj in (("latest.json", data), ("charts.json", charts), ("snapshots.json", archive),
+                      ("search.json", search_data)):
         with open(os.path.join(SITE_DIR, "data", name), "w", encoding="utf-8") as fh:
             json.dump(obj, fh, ensure_ascii=False, separators=(",", ":"))
     open(os.path.join(SITE_DIR, ".nojekyll"), "w").close()

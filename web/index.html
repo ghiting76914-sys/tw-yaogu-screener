@@ -154,6 +154,40 @@ tbody tr.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); 
   background: var(--panel-2); color: var(--text); white-space: nowrap;
 }
 .chip.red { background: var(--up-soft); color: var(--up); }
+.search-box { position: relative; }
+.search-box input { width: 220px; padding: 7px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--text); font-size: 14px; outline: none; transition: border-color .15s, width .2s; }
+.search-box input:focus { border-color: var(--accent); width: 260px; }
+.search-suggest { position: absolute; top: calc(100% + 4px); left: 0; right: 0; min-width: 260px; z-index: 30;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.18); overflow: hidden; }
+.search-suggest button { display: flex; width: 100%; gap: 10px; align-items: baseline; padding: 8px 12px; border: 0; border-radius: 0;
+  background: none; color: var(--text); text-align: left; cursor: pointer; font-size: 14px; }
+.search-suggest button:hover, .search-suggest button.on { background: var(--panel-2); }
+.search-suggest .code { color: var(--muted); }
+.search-suggest .tag { margin-left: auto; font-size: 11px; color: var(--accent); }
+.search-card { margin-bottom: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; box-shadow: var(--shadow); }
+.sc-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.sc-head h2 { margin: 0; font-size: 20px; }
+.sc-head .px { font-size: 24px; font-weight: 700; }
+.sc-close { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 0 4px; }
+.sc-verdict { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--panel-2); }
+.sc-verdict b.lv { font-size: 17px; }
+.sc-verdict.good b.lv { color: var(--up); }
+.sc-verdict.bad b.lv { color: var(--down); }
+.sc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; margin-top: 14px; }
+@media (max-width: 760px) { .sc-grid { grid-template-columns: 1fr; } .search-box input, .search-box input:focus { width: 100%; } .search-box { flex: 1; } }
+.sc-grid h4 { margin: 0 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.sc-checks { list-style: none; margin: 0; padding: 0; font-size: 13.5px; }
+.sc-checks li { display: flex; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.sc-checks li .r { margin-left: auto; color: var(--muted); font-size: 12.5px; text-align: right; }
+.sc-checks .y { color: var(--up); } .sc-checks .n { color: var(--muted); } .sc-checks .x { color: var(--down); }
+.sc-levels { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.sc-levels td { padding: 5px 4px; border-bottom: 1px solid var(--line); }
+.sc-levels td:first-child { text-align: left; width: 88px; color: var(--muted); font-family: inherit; }
+.sc-levels td.v { text-align: right; font-weight: 700; width: 96px; }
+.search-card a { color: var(--accent); text-decoration: none; }
+.search-card a:hover { text-decoration: underline; }
+.sc-levels td.h { text-align: right; color: var(--muted); font-size: 12px; }
 .chip.dim { background: transparent; color: var(--muted); border: 1px solid var(--line); }
 .chip.amber { background: var(--warn-soft); color: var(--warn); }
 .chip.blue { background: var(--info-soft); color: var(--info); }
@@ -403,6 +437,10 @@ html { scroll-behavior: smooth; }
     <small>台股上市櫃 · 每日收盤篩選</small>
   </div>
   <div class="head-right">
+    <div class="search-box">
+      <input id="stockSearch" type="search" placeholder="🔍 搜尋股票代號或名稱" autocomplete="off" aria-label="搜尋股票">
+      <div id="searchSuggest" class="search-suggest" hidden></div>
+    </div>
     <button id="alertBtn" type="button" title="盤中股價到推薦進場點位時，跳出瀏覽器通知（網頁需保持開啟）">🔔 盤中提醒</button>
     <span class="status" id="status"></span>
     <input type="date" id="date" class="dyn" title="篩選日期（留空為最近交易日）">
@@ -411,6 +449,7 @@ html { scroll-behavior: smooth; }
 </header>
 
 <main>
+  <section class="search-card" id="searchCard" hidden></section>
   <section class="top3" id="top3Panel" hidden></section>
 
   <nav class="tabs" id="tabs">
@@ -885,6 +924,152 @@ async function select(code) {
   }
   if (!STATIC && state.data.market_open) pollQuote(code);
 }
+
+// ---------------------------------------------------------------- 個股搜尋與健檢（資料：search.json，search.py 產生）
+
+let searchData = null, searchLoading = null;
+async function loadSearch() {
+  if (searchData) return searchData;
+  if (!searchLoading) {
+    const url = STATIC ? `data/search.json?t=${state.data ? state.data.generated_at : ""}` : "/api/search";
+    searchLoading = fetch(url).then((r) => r.json()).then((j) => (searchData = j)).catch(() => { searchLoading = null; return null; });
+  }
+  return searchLoading;
+}
+
+const TAG_NAMES = { top3: "精選 3 檔", rev: "營收動能", rec: "隔日沖 ⭐推薦", overnight: "隔日沖", day: "當沖觀察",
+  picks: "明日強勢候選", pre: "起漲前夕", radar: "妖股雷達" };
+
+function searchMatches(q) {
+  const S = searchData && searchData.stocks;
+  if (!S || !q) return [];
+  q = q.trim().toUpperCase();
+  const out = [];
+  for (const [code, x] of Object.entries(S)) {
+    if (code.startsWith(q) || x.n.toUpperCase().includes(q)) out.push([code, x]);
+    if (out.length > 200) break;
+  }
+  out.sort((a, b) => (b[0] === q) - (a[0] === q) || (b[0].startsWith(q)) - (a[0].startsWith(q)) || b[1].v20 - a[1].v20);
+  return out.slice(0, 8);
+}
+
+// 只用回測驗證過的規則判斷（說明見 search.py）
+function searchVerdict(x) {
+  const f = x.rev, tags = new Set(x.tags);
+  const above60 = x.ma60 != null && x.c > x.ma60, brk = x.c > x.hi60, liquid = x.v20 >= 1000;
+  const revOk = !!(f && f.h12 && f.yoy > 20);
+  if (x.warn === "處置股") return { cls: "bad", lv: "避開", why: "處置股：交易受限（分盤撮合、需預收款券），波動大，所有策略都排除。", swing: false };
+  if (tags.has("top3")) return { cls: "good", lv: "建議買進（今日精選 3 檔）", why: "營收創 12 個月新高、年增 > 20%、站上季線，今天收盤突破 60 日新高，成交值前 3。11 年回測（收盤價買、停損 -10%、持有 20 天）每筆平均 +3.2%～+3.7%。", swing: true };
+  if (revOk && above60 && brk && liquid) return { cls: "good", lv: "符合精選條件", why: "條件都符合，只是成交值沒有排進前 3。同樣適用精選 3 檔的買法與停損。", swing: true };
+  if (revOk && above60) return { cls: "good", lv: "偏多：符合營收動能", why: "營收創 12 個月新高、年增 > 20%、站上季線。這類股票 11 年回測 137 個月中 90 個月贏過大盤；" + (brk ? "" : "還沒突破 60 日高，可等突破或拉回月線再買。"), swing: true };
+  if (tags.has("rec")) return { cls: "good", lv: "短線：今日隔日沖 ⭐推薦", why: "收盤前買、明天開盤賣。近 12 個月回測每筆平均 +1.2%。中長期則沒有符合的條件。", swing: false };
+  if (tags.has("day")) return { cls: "", lv: "短線：明天當沖觀察", why: "今天收盤鎖漲停。明天開盤漲 ≥ 3%（未漲停）可放空、跌 ≥ 3% 可做多，停損 5%、收盤前出場。", swing: false };
+  if (f && f.yoy < 0 && !above60) return { cls: "bad", lv: "不建議", why: "營收年減、股價也在季線下，基本面與趨勢都偏弱。", swing: false };
+  if (!above60 && x.ma60 != null) return { cls: "bad", lv: "觀望（跌破季線）", why: "股價在季線之下，趨勢偏弱；回測中站上季線是營收動能的必要條件。", swing: false };
+  return { cls: "", lv: "觀望", why: "目前沒有符合任何回測驗證過的買點" + (f ? `（營收：${f.h12 ? "" : "沒有創 12 個月新高"}${!f.h12 && f.yoy <= 20 ? "、" : ""}${f.yoy <= 20 ? "年增未超過 20%" : ""}）` : "（沒有營收資料）") + "。", swing: false };
+}
+
+function sparkSvg(xs) {
+  if (!xs || xs.length < 2) return "";
+  const lo = Math.min(...xs), hi = Math.max(...xs), W = 260, H = 54;
+  const pts = xs.map((v, i) => `${(i / (xs.length - 1) * W).toFixed(1)},${(H - 4 - (hi === lo ? 0.5 : (v - lo) / (hi - lo)) * (H - 8)).toFixed(1)}`).join(" ");
+  const col = xs[xs.length - 1] >= xs[0] ? "var(--up)" : "var(--down)";
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" aria-label="近 20 日走勢"><polyline fill="none" stroke="${col}" stroke-width="1.8" points="${pts}"/></svg>`;
+}
+
+function showStock(code) {
+  const x = searchData && searchData.stocks[code];
+  const el = $("searchCard");
+  if (!x) return;
+  const v = searchVerdict(x), f = x.rev;
+  const ps = (state.data && state.data.pivot_stats) || {};
+  const pst = (x.p || 0) >= 7 ? ps.strong : ps.all;
+  const yes = (b) => b == null ? '<span class="n">–</span>' : b ? '<span class="y">✓</span>' : '<span class="x">✗</span>';
+  const checks = [
+    ["營收創 12 個月新高", f ? f.h12 : null, f ? `${f.ym.slice(0, 4)}/${f.ym.slice(4)}` : "無營收資料"],
+    ["營收年增 > 20%", f ? f.yoy > 20 : null, f ? `年增 ${pct(f.yoy, 1)}%` : ""],
+    ["站上季線（60 日均線）", x.ma60 == null ? null : x.c > x.ma60, x.ma60 == null ? "資料不足" : `季線 ${fmt(x.ma60)}`],
+    ["突破前 60 日高點", x.c > x.hi60, `60 日高 ${fmt(x.hi60)}`],
+    ["流動性（20 日均量 ≥ 1,000 張）", x.v20 >= 1000, `${x.v20.toLocaleString()} 張`],
+    ["非處置／注意股", !x.warn, x.warn || "正常"],
+  ];
+  const stop10 = x.c * 0.9, atrStop = x.atr ? x.c - 1.5 * x.atr : null;
+  const pv = x.pv || {};
+  const hp = (k) => pst && pst[k] != null ? `隔天碰到 ${pst[k]}%` : "";
+  el.innerHTML = `
+    <div class="sc-head">
+      <h2>${esc(x.n)} <span class="code num">${code}</span><span class="mkt">${x.m}</span></h2>
+      <span class="px num ${x.p > 0 ? "up" : x.p < 0 ? "down" : ""}">${fmt(x.c)}</span>
+      <span class="num ${x.p > 0 ? "up" : x.p < 0 ? "down" : ""}">${x.p == null ? "" : pct(x.p) + "%"}</span>
+      <span class="muted" style="font-size:12px">${searchData.date} 收盤</span>
+      <button class="sc-close" type="button" aria-label="關閉" id="scClose">×</button>
+    </div>
+    <div class="sc-verdict ${v.cls}"><b class="lv">${v.lv}</b><div style="margin-top:4px;font-size:13.5px">${v.why}</div>
+      ${x.tags.length ? `<div style="margin-top:6px;font-size:12.5px" class="muted">在今天的名單：${x.tags.map((t) => TAG_NAMES[t] || t).join("、")}</div>` : ""}</div>
+    <div class="sc-grid">
+      <div>
+        <h4>條件檢查</h4>
+        <ul class="sc-checks">${checks.map(([k, b, r]) => `<li>${yes(b)}<span>${k}</span><span class="r num">${r}</span></li>`).join("")}</ul>
+        <h4 style="margin-top:12px">近 20 日走勢</h4>${sparkSvg(x.spark)}
+      </div>
+      <div>
+        ${v.swing ? `<h4>波段點位（精選 3 檔的回測規則）</h4>
+        <table class="sc-levels num">
+          <tr><td>進場</td><td class="v">${fmt(x.c)}</td><td class="h">今天 14:00～14:30 盤後定價，或明天開盤</td></tr>
+          ${x.ma20 < x.c ? `<tr><td>拉回參考</td><td class="v">${fmt(x.ma20)}</td><td class="h">月線（20 日均線）</td></tr>` : ""}
+          <tr><td>停損</td><td class="v down">${fmt(stop10)}</td><td class="h">進場價 -10%（盤中跌破就出場）</td></tr>
+          <tr><td>出場</td><td class="v">20 天</td><td class="h">持有 20 個交易日收盤賣，不設停利</td></tr>
+        </table>` : ""}
+        <h4 style="margin-top:${v.swing ? 12 : 0}px">明日短線參考（樞紐點）</h4>
+        <table class="sc-levels num">
+          <tr><td>壓力 R2</td><td class="v up">${fmt(pv.R2)}</td><td class="h">${hp("R2")}</td></tr>
+          <tr><td>壓力 R1</td><td class="v up">${fmt(pv.R1)}</td><td class="h">${hp("R1")}（可當停利參考）</td></tr>
+          <tr><td>支撐 S1</td><td class="v down">${fmt(pv.S1)}</td><td class="h">${hp("S1")}</td></tr>
+          <tr><td>支撐 S2</td><td class="v down">${fmt(pv.S2)}</td><td class="h">${hp("S2")}</td></tr>
+          ${atrStop ? `<tr><td>短線停損</td><td class="v down">${fmt(atrStop)}</td><td class="h">收盤 - 1.5 倍 ATR（依個股波動）</td></tr>` : ""}
+        </table>
+        <div class="muted" style="font-size:12px;margin-top:6px">機率為 2 年資料中${(x.p || 0) >= 7 ? "當天大漲 7% 以上的股票" : "所有股票"}隔天最高／最低價碰到的比例。</div>
+      </div>
+    </div>
+    <div style="margin-top:12px;font-size:13px;display:flex;gap:14px;flex-wrap:wrap">
+      ${findStock(code) ? `<a href="#" id="scDetail">看 K 線與完整明細 →</a>` : ""}
+      <a href="https://tw.stock.yahoo.com/quote/${code}" target="_blank" rel="noopener">Yahoo 股市 ↗</a>
+      <span class="muted">規則判斷，非投資建議。</span>
+    </div>`;
+  el.hidden = false;
+  $("scClose").onclick = () => { el.hidden = true; };
+  const d = $("scDetail");
+  if (d) d.onclick = (e) => { e.preventDefault(); select(code); $("detail").scrollIntoView({ behavior: "smooth" }); };
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+(function setupSearch() {
+  const inp = $("stockSearch"), box = $("searchSuggest");
+  let items = [], idx = 0;
+  const draw = () => {
+    box.hidden = !items.length;
+    box.innerHTML = items.map(([code, x], i) => `<button type="button" data-code="${code}" class="${i === idx ? "on" : ""}">
+      <b>${esc(x.n)}</b><span class="code num">${code}</span><span class="num ${x.p > 0 ? "up" : x.p < 0 ? "down" : ""}">${fmt(x.c)}</span>
+      ${x.tags.length ? `<span class="tag">${TAG_NAMES[x.tags[0]]}</span>` : ""}</button>`).join("");
+  };
+  const pick = (code) => { box.hidden = true; inp.value = ""; inp.blur(); showStock(code); };
+  inp.addEventListener("focus", () => loadSearch());
+  inp.addEventListener("input", async () => {
+    await loadSearch();
+    if (!searchData) { box.hidden = false; box.innerHTML = `<div style="padding:10px 12px" class="muted">搜尋資料讀取失敗，請稍後再試</div>`; return; }
+    items = searchMatches(inp.value); idx = 0; draw();
+    if (inp.value.trim() && !items.length) { box.hidden = false; box.innerHTML = `<div style="padding:10px 12px" class="muted">找不到「${esc(inp.value.trim())}」（只收錄上市櫃一般股）</div>`; }
+  });
+  inp.addEventListener("keydown", (e) => {
+    if (box.hidden || !items.length) return;
+    if (e.key === "ArrowDown") { idx = (idx + 1) % items.length; draw(); e.preventDefault(); }
+    else if (e.key === "ArrowUp") { idx = (idx - 1 + items.length) % items.length; draw(); e.preventDefault(); }
+    else if (e.key === "Enter") { pick(items[idx][0]); e.preventDefault(); }
+    else if (e.key === "Escape") { box.hidden = true; }
+  });
+  box.addEventListener("mousedown", (e) => { const b = e.target.closest("button[data-code]"); if (b) { e.preventDefault(); pick(b.dataset.code); } });
+  inp.addEventListener("blur", () => setTimeout(() => { box.hidden = true; }, 150));
+})();
 
 // ---------------------------------------------------------------- 當沖觀察
 

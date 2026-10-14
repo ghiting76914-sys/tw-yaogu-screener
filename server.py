@@ -34,6 +34,9 @@ _markets = {}  # 代號 -> 上市/上櫃，供即時報價使用
 _backtests = {}  # 回測結果快取（歷史資料不變就不用重算）
 
 
+_last_ref = {}
+
+
 def run_screen(date_str, min_volume, small_cap, live=True):
     end = dt.datetime.strptime(date_str, "%Y%m%d").date() if date_str else dt.date.today()
     args = types.SimpleNamespace(min_score=SERVER_MIN_SCORE, min_volume=min_volume,
@@ -45,6 +48,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         _histories.clear()
         _histories[trade_date.strftime("%Y%m%d")] = history
         _markets.update({c: r["market"] for c, r in history[-1][1].items()})
+        _last_ref["ref"] = res["ref"]  # 個股搜尋資料（search.py）需要處置股、注意股清單
 
         excluded = []
         picks = strategy.tomorrow_picks(history, res["ref"], small_cap,
@@ -94,6 +98,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             "daytrade": {"list": daytrade, "rules": strategy.DAYTRADE, "research": strategy.DAYTRADE_RESEARCH},
             "overnight_research": strategy.OVERNIGHT_RESEARCH, "previous": previous,
             "pivot_stats": _backtests[bt_key][3]}
+    _last_ref["data"] = data
     try:
         snapshots.save(data)
     except Exception as e:
@@ -203,6 +208,12 @@ class Handler(SimpleHTTPRequestHandler):
             elif url.path == "/api/quote":
                 q_ = quote(q.get("code", ""))
                 self.send_json({"quote": q_, "market_open": yaogu.market_open_now()})
+            elif url.path == "/api/search":
+                import search
+                if not _histories or "data" not in _last_ref:
+                    self.send_json({"error": "請先執行篩選"}, 404)
+                else:
+                    self.send_json(search.build(next(iter(_histories.values())), _last_ref.get("ref"), _last_ref["data"]))
             elif url.path == "/api/mis":
                 # 盤中到價提醒：與 cloudflare/worker.js 相同，只轉接證交所即時報價
                 ex = q.get("ex_ch", "")
