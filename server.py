@@ -72,7 +72,8 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         detail_args = types.SimpleNamespace(**{**vars(args), "min_volume": 0})
         details = {}
         top3_picks = ((rev or {}).get("top3") or {}).get("picks", [])
-        for p in picks + pre + overnight + daytrade + (rev["picks"] if rev else []) + top3_picks:
+        pushed_on = (snap or {}).get("overnight", []) if snap else []
+        for p in picks + pre + overnight + daytrade + pushed_on + (rev["picks"] if rev else []) + top3_picks:
             code = p["代號"]
             if code not in known and code not in details:
                 row = yaogu.analyze(code, history, res["ref"], detail_args)

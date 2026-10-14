@@ -203,6 +203,8 @@ tbody tr.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); 
 .search-card a { color: var(--accent); text-decoration: none; }
 .search-card a:hover { text-decoration: underline; }
 .sc-levels td.h { text-align: right; color: var(--muted); font-size: 12px; }
+.card-title { padding: 12px 16px 4px; font-weight: 700; font-size: 14px; }
+.card-title .muted { font-weight: 400; font-size: 12px; margin-left: 6px; }
 .chip.dim { background: transparent; color: var(--muted); border: 1px solid var(--line); }
 .chip.amber { background: var(--warn-soft); color: var(--warn); }
 .chip.blue { background: var(--info-soft); color: var(--info); }
@@ -1853,13 +1855,18 @@ function renderOvernight() {
   const nowCodes = new Set(d.overnight.map((p) => p["代號"]));
   const dropped = pushed ? pushed.list.filter((p) => !nowCodes.has(p["代號"])) : [];
   const added = pushed ? d.overnight.filter((p) => !pushedCodes.has(p["代號"])) : [];
-  const pushedNote = pushed && pushed.list.length && (dropped.length || added.length || !intraday)
+  const pushedNote = pushed && pushed.list.length && !(pushed.list[0]["漲跌%"] !== undefined) && (dropped.length || added.length || !intraday)
     ? `<p class="filter-note">📌 <b>${esc((pushed.time || "").slice(0, 5))} 推播的名單</b>：${pushed.list.map((p) => `${esc(p["名稱"])} ${fmt(p["價格"])}`).join("、")}
         <span class="muted" style="display:block;font-size:12px;margin-top:2px">實際績效以這份計算${dropped.length ? `；已不在目前名單：${dropped.map((p) => esc(p["名稱"])).join("、")}` : ""}${added.length ? `；推播後才加入：${added.map((p) => esc(p["名稱"])).join("、")}` : ""}</span></p>` : "";
-  const rows = d.overnight.map((p, i) => `
+  // 推播之後，主表固定顯示推播的名單（價格為推播當時）；最新條件下的名單收進下方
+  const lockList = pushed && pushed.list.length && pushed.list[0]["漲跌%"] !== undefined
+    ? pushed.list.map((p) => ({ ...p, "現價": p["價格"] })) : null;
+  const mainList = lockList || d.overnight;
+  $("cntOvernight").textContent = mainList.length;
+  const rowHtml = (list, mark) => list.map((p, i) => `
     <tr data-code="${p["代號"]}" class="${p["代號"] === state.selected ? "sel" : ""}">
       <td class="num">${i + 1}</td>
-      <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span>${p["推薦"] ? ' <span class="chip sm red" title="起漲第 1 根，或量比 < 2 且突破 60 日高">⭐ 推薦</span>' : ""}${pushed && pushedCodes.has(p["代號"]) ? ' <span class="chip sm dim">已推播</span>' : ""}${p["起漲第1根"] ? ' <span class="chip sm dim" title="前 20 天盤整後首度放量大漲">起漲第1根</span>' : ""}</td>
+      <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"] || ""}</span>${p["推薦"] ? ' <span class="chip sm red" title="起漲第 1 根，或量比 < 2 且突破 60 日高">⭐ 推薦</span>' : ""}${mark && pushed && pushedCodes.has(p["代號"]) ? ' <span class="chip sm dim">已推播</span>' : ""}${p["起漲第1根"] ? ' <span class="chip sm dim" title="前 20 天盤整後首度放量大漲">起漲第1根</span>' : ""}</td>
       <td class="num">${fmt(p["現價"])}</td>
       <td class="num">${pct(p["漲跌%"])}%</td>
       <td class="num col-opt">${pct(p["開盤%"], 1)}%</td>
@@ -1899,14 +1906,18 @@ function renderOvernight() {
       </details>
     </div>
     <div class="card" style="margin-top:12px">
+      ${lockList ? `<div class="card-title">📌 ${esc((pushed.time || "").slice(0, 5))} 推播的名單<span class="muted">（固定不變，價格與漲幅為推播當時）</span></div>` : ""}
       <div class="table-wrap" style="max-height:none">
         <table>
-          <thead><tr><th>#</th><th class="l">股票</th><th>現價</th><th>漲幅</th><th class="col-opt">開盤</th><th>量比</th><th class="col-opt">漲停價</th><th title="以現價計算；實際請用自己的買進價 × 1.02">+2% 限價賣</th><th class="l">狀態</th></tr></thead>
-          <tbody>${rows}</tbody>
+          <thead><tr><th>#</th><th class="l">股票</th><th>${lockList ? "推播價" : "現價"}</th><th>漲幅</th><th class="col-opt">開盤</th><th>量比</th><th class="col-opt">漲停價</th><th title="以現價計算；實際請用自己的買進價 × 1.02">+2% 限價賣</th><th class="l">狀態</th></tr></thead>
+          <tbody>${rowHtml(mainList, !lockList)}</tbody>
         </table>
-        ${d.overnight.length ? "" : `<div class="empty">目前沒有符合條件的股票。</div>`}
+        ${mainList.length ? "" : `<div class="empty">目前沒有符合條件的股票。</div>`}
       </div>
     </div>
+    ${lockList ? `<details class="more card" style="margin-top:12px;padding:12px 16px"><summary>最新條件下的名單（${d.live ? esc(d.live.time.slice(0, 5)) : "收盤"}，會隨股價變動，僅供參考）</summary>
+      <div class="table-wrap" style="max-height:none"><table><thead><tr><th>#</th><th class="l">股票</th><th>現價</th><th>漲幅</th><th class="col-opt">開盤</th><th>量比</th><th class="col-opt">漲停價</th><th title="以現價計算；實際請用自己的買進價 × 1.02">+2% 限價賣</th><th class="l">狀態</th></tr></thead><tbody>${rowHtml(d.overnight, true)}</tbody></table>
+      ${d.overnight.length ? "" : `<div class="empty">目前沒有符合條件的股票。</div>`}</div></details>` : ""}
     ${prevTable("overnight")}`;
 }
 

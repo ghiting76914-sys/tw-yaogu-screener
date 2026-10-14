@@ -32,7 +32,9 @@ def save(data):
     rev = data.get("revenue") or {}
     snap = {
         "trade_date": data["trade_date"], "mode": mode, "time": (live or {}).get("time"),
-        "overnight": _slim(data.get("overnight") or [], extra=("推薦",)),
+        # 隔日沖存完整欄位：推播後網站固定顯示這份名單（不隨之後的更新變動）
+        "overnight": _slim(data.get("overnight") or [], extra=("推薦", "市場", "漲跌%", "開盤%", "量比", "漲停價",
+                                                              "限價賣出", "已漲停", "起漲第1根", "突破60日高")),
         "picks": [{**s, "進場區間": [p["計畫"]["levels"]["entry_low"], p["計畫"]["levels"]["entry_high"]]}
                   for s, p in zip(_slim(data.get("picks") or []), data.get("picks") or [])],
         "pre": [{**s, "突破價": p["計畫"]["levels"]["trigger"]}
