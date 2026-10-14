@@ -20,6 +20,31 @@ SNAP_DIR = os.path.join(CACHE_DIR, "snapshots")
 COST = strategy.ROUND_TRIP_COST
 
 
+OVERNIGHT_FIELDS = ("推薦", "市場", "漲跌%", "開盤%", "量比", "漲停價", "限價賣出", "已漲停", "起漲第1根", "突破60日高",
+                    "理由", "風險")
+
+
+def fixed_overnight(date, intraday, current, time):
+    """隔日沖名單固定規則（不隨網站每次更新變動）：
+    盤中：12:30 推播後固定顯示推播的名單；收盤後：第一次收盤後更新（13:40）的名單為最後確認，之後也固定。
+    回傳 (名單, 狀態說明 dict 或 None)。"""
+    if intraday:
+        snap = _load(date, "preview")
+        rows = (snap or {}).get("overnight") or []
+        if rows and "漲跌%" in rows[0]:
+            return [{**p, "現價": p["價格"]} for p in rows], {"kind": "pushed", "time": snap.get("time")}
+        return current, None
+    path = os.path.join(SNAP_DIR, f"overnight_close_{date}.json")
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            saved = json.load(fh)
+        return saved["list"], {"kind": "close", "time": saved.get("time")}
+    os.makedirs(SNAP_DIR, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"time": time, "list": current}, fh, ensure_ascii=False)
+    return current, {"kind": "close", "time": time}
+
+
 def _slim(lst, extra=()):
     return [{"代號": p["代號"], "名稱": p["名稱"], "價格": p.get("收盤", p.get("現價")),
              **{k: p[k] for k in extra if k in p}} for p in lst]
@@ -33,8 +58,7 @@ def save(data):
     snap = {
         "trade_date": data["trade_date"], "mode": mode, "time": (live or {}).get("time"),
         # 隔日沖存完整欄位：推播後網站固定顯示這份名單（不隨之後的更新變動）
-        "overnight": _slim(data.get("overnight") or [], extra=("推薦", "市場", "漲跌%", "開盤%", "量比", "漲停價",
-                                                              "限價賣出", "已漲停", "起漲第1根", "突破60日高")),
+        "overnight": _slim(data.get("overnight") or [], extra=OVERNIGHT_FIELDS),
         "picks": [{**s, "進場區間": [p["計畫"]["levels"]["entry_low"], p["計畫"]["levels"]["entry_high"]]}
                   for s, p in zip(_slim(data.get("picks") or []), data.get("picks") or [])],
         "pre": [{**s, "突破價": p["計畫"]["levels"]["trigger"]}

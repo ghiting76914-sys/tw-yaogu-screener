@@ -61,6 +61,10 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         # 另外算出完整明細（分數、漲幅、週轉率等），讓右側明細不缺欄位
         rev = _revenue_summary(history)
         overnight = strategy.overnight_picks(history, res["ref"])
+        intraday = bool(res["live"] and not res["live"]["final"])
+        overnight, overnight_fixed = snapshots.fixed_overnight(
+            trade_date.isoformat(), intraday, overnight,
+            (res["live"] or {}).get("time", "")[:5] or dt.datetime.now().strftime("%H:%M"))
         daytrade = strategy.daytrade_watch(history, res["ref"])
         # 明日強勢候選中，今天 12:30 隔日沖名單也有的股票（盤中執行時就用當下的名單）
         snap = snapshots._load(trade_date.isoformat(), "preview")
@@ -95,7 +99,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             "market": res["market"][-1], "insti_ready": res["insti"][-1] is not None,
             "insti_excluded": excluded, "details": details, "etf": _etf_summary(), "etfs": etf.others(),
             "pre_total": pre_total[0] if pre_total else len(pre), "revenue": rev,
-            "overnight": overnight, "overnight_backtest": _backtests[bt_key][2],
+            "overnight": overnight, "overnight_fixed": overnight_fixed, "overnight_backtest": _backtests[bt_key][2],
             "daytrade": {"list": daytrade, "rules": strategy.DAYTRADE, "research": strategy.DAYTRADE_RESEARCH},
             "overnight_research": strategy.OVERNIGHT_RESEARCH, "previous": previous,
             "pivot_stats": _backtests[bt_key][3]}
