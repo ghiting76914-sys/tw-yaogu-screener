@@ -170,6 +170,9 @@ tbody tr.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); 
 .sc-head h2 { margin: 0; font-size: 20px; }
 .sc-head .px { font-size: 24px; font-weight: 700; }
 .sc-close { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 0 4px; }
+.sc-live { margin-top: 8px; font-size: 13.5px; display: block; }
+.sc-live .live { margin-right: 6px; }
+.sc-live span + span, .sc-live b + span { margin-left: 8px; }
 .sc-verdict { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--panel-2); }
 .sc-verdict b.lv { font-size: 17px; }
 .sc-verdict.good b.lv { color: var(--up); }
@@ -959,7 +962,7 @@ function searchVerdict(x) {
   const above60 = x.ma60 != null && x.c > x.ma60, brk = x.c > x.hi60, liquid = x.v20 >= 1000;
   const revOk = !!(f && f.h12 && f.yoy > 20);
   if (x.warn === "處置股") return { cls: "bad", lv: "避開", why: "處置股：交易受限（分盤撮合、需預收款券），波動大，所有策略都排除。", swing: false };
-  if (tags.has("top3")) return { cls: "good", lv: "建議買進（今日精選 3 檔）", why: "營收創 12 個月新高、年增 > 20%、站上季線，今天收盤突破 60 日新高，成交值前 3。11 年回測（收盤價買、停損 -10%、持有 20 天）每筆平均 +3.2%～+3.7%。", swing: true };
+  if (tags.has("top3")) return { cls: "good", lv: `建議買進（${searchData.date === twDay(twNow()) ? "今日" : searchData.date.slice(5).replace("-", "/") + " "}精選 3 檔）`, why: "營收創 12 個月新高、年增 > 20%、站上季線，今天收盤突破 60 日新高，成交值前 3。11 年回測（收盤價買、停損 -10%、持有 20 天）每筆平均 +3.2%～+3.7%。", swing: true };
   if (revOk && above60 && brk && liquid) return { cls: "good", lv: "符合精選條件", why: "條件都符合，只是成交值沒有排進前 3。同樣適用精選 3 檔的買法與停損。", swing: true };
   if (revOk && above60) return { cls: "good", lv: "偏多：符合營收動能", why: "營收創 12 個月新高、年增 > 20%、站上季線。這類股票 11 年回測 137 個月中 90 個月贏過大盤；" + (brk ? "" : "還沒突破 60 日高，可等突破或拉回月線再買。"), swing: true };
   if (tags.has("rec")) return { cls: "good", lv: "短線：今日隔日沖 ⭐推薦", why: "收盤前買、明天開盤賣。近 12 個月回測每筆平均 +1.2%。中長期則沒有符合的條件。", swing: false };
@@ -1004,6 +1007,7 @@ function showStock(code) {
       <span class="muted" style="font-size:12px">${searchData.date} 收盤</span>
       <button class="sc-close" type="button" aria-label="關閉" id="scClose">×</button>
     </div>
+    <div id="scLive" class="sc-live muted">讀取即時價…</div>
     <div class="sc-verdict ${v.cls}"><b class="lv">${v.lv}</b><div style="margin-top:4px;font-size:13.5px">${v.why}</div>
       ${x.tags.length ? `<div style="margin-top:6px;font-size:12.5px" class="muted">在今天的名單：${x.tags.map((t) => TAG_NAMES[t] || t).join("、")}</div>` : ""}</div>
     <div class="sc-grid">
@@ -1015,7 +1019,7 @@ function showStock(code) {
       <div>
         ${v.swing ? `<h4>波段點位（精選 3 檔的回測規則）</h4>
         <table class="sc-levels num">
-          <tr><td>進場</td><td class="v">${fmt(x.c)}</td><td class="h">今天 14:00～14:30 盤後定價，或明天開盤</td></tr>
+          <tr><td>進場</td><td class="v">${fmt(x.c)}</td><td class="h">${searchData.date === twDay(twNow()) ? "今天 14:00～14:30 盤後定價，或明天開盤" : `${searchData.date.slice(5).replace("-", "/")} 收盤價；之後進場請以實際買價重算停損`}</td></tr>
           ${x.ma20 < x.c ? `<tr><td>拉回參考</td><td class="v">${fmt(x.ma20)}</td><td class="h">月線（20 日均線）</td></tr>` : ""}
           <tr><td>停損</td><td class="v down">${fmt(stop10)}</td><td class="h">進場價 -10%（盤中跌破就出場）</td></tr>
           <tr><td>出場</td><td class="v">20 天</td><td class="h">持有 20 個交易日收盤賣，不設停利</td></tr>
@@ -1037,10 +1041,43 @@ function showStock(code) {
       <span class="muted">規則判斷，非投資建議。</span>
     </div>`;
   el.hidden = false;
-  $("scClose").onclick = () => { el.hidden = true; };
+  $("scClose").onclick = () => { el.hidden = true; clearTimeout(liveTimer); };
+  liveStock = { code, x, swing: v.swing };
+  pollLive();
   const d = $("scDetail");
   if (d) d.onclick = (e) => { e.preventDefault(); select(code); $("detail").scrollIntoView({ behavior: "smooth" }); };
   el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// 健檢卡片的即時價：開啟時抓一次，盤中卡片開著時每 20 秒更新
+let liveStock = null, liveTimer = null;
+async function pollLive() {
+  clearTimeout(liveTimer);
+  const ls = liveStock, el = $("scLive");
+  if (!ls || !el || $("searchCard").hidden) return;
+  if (STATIC && !ALERT_WORKER) { el.textContent = ""; return; }
+  try {
+    const q = (await alertFetch([ls.code]))[ls.code];
+    if (liveStock !== ls) return;
+    if (!q) { el.innerHTML = "即時價暫時讀不到（可能暫停交易）"; }
+    else {
+      const x = ls.x, base = q.prev || x.c, chg = (q.price / base - 1) * 100;
+      const cls = chg > 0 ? "up" : chg < 0 ? "down" : "";
+      const d = (lv) => lv ? `${pct((lv / q.price - 1) * 100, 1)}%` : "–";
+      const pv = x.pv || {};
+      const where = q.price >= pv.R2 ? "已過壓力 R2" : q.price >= pv.R1 ? "在 R1～R2 之間" : q.price > pv.S1 ? "在 S1～R1 之間"
+        : q.price > pv.S2 ? "在 S2～S1 之間" : "已跌破支撐 S2";
+      const today = q.prev && Math.abs(q.prev - x.c) < 1e-6;  // 即時資料的昨收 = 搜尋資料的收盤 → 點位就是今天的參考
+      el.innerHTML = `<span class="live ${inMarketHours() ? "pulse" : "done"}">即時 ${esc((q.time || "").slice(0, 5))}</span>
+        <b class="num ${cls}" style="font-size:18px">${fmt(q.price)}</b> <span class="num ${cls}">${pct(chg)}%</span>
+        ${q.high ? `<span class="num">高 ${fmt(q.high)}　低 ${fmt(q.low)}</span>` : ""}
+        ${q.traded ? "" : '<span class="muted">（這一刻無成交，顯示委買價）</span>'}
+        <div style="margin-top:4px;font-size:12.5px">${today ? `${where}；距 R1 ${d(pv.R1)}、S1 ${d(pv.S1)}` : "點位是以最新收盤計算的下一個交易日參考"}${ls.swing ? `；距停損 ${d(x.c * 0.9)}` : ""}</div>`;
+    }
+  } catch (e) {
+    el.innerHTML = `即時價讀取失敗（${esc(alertErrorText(e))}），稍後重試`;
+  }
+  if (inMarketHours()) liveTimer = setTimeout(pollLive, 20000);
 }
 
 (function setupSearch() {
@@ -1229,7 +1266,9 @@ async function alertFetchOnce(codes) {
       p = b > 0 ? b : a > 0 ? a : NaN;
     }
     const op = parseFloat(r.o);
-    if (p > 0) out[r.c] = { price: p, open: op > 0 ? op : null, time: r.t };
+    const num_ = (k) => { const v = parseFloat(r[k]); return v > 0 ? v : null; };
+    if (p > 0) out[r.c] = { price: p, open: op > 0 ? op : null, time: r.t, prev: num_("y"), high: num_("h"), low: num_("l"),
+      vol: parseFloat(r.v) || null, traded: parseFloat(r.z) > 0 };
   }
   return out;
 }
