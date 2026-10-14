@@ -268,6 +268,38 @@ def market_open_now():
 
 # ---------------------------------------------------------------- 基本資料 / 注意 / 處置
 
+# 證交所／櫃買產業別代碼（兩邊通用）
+INDUSTRY_NAMES = {
+    "01": "水泥", "02": "食品", "03": "塑膠", "04": "紡織", "05": "電機機械", "06": "電器電纜", "08": "玻璃陶瓷",
+    "09": "造紙", "10": "鋼鐵", "11": "橡膠", "12": "汽車", "14": "建材營造", "15": "航運", "16": "觀光餐旅",
+    "17": "金融保險", "18": "貿易百貨", "19": "綜合", "20": "其他", "21": "化學", "22": "生技醫療", "23": "油電燃氣",
+    "24": "半導體", "25": "電腦週邊", "26": "光電", "27": "通信網路", "28": "電子零組件", "29": "電子通路",
+    "30": "資訊服務", "31": "其他電子", "32": "文化創意", "33": "農業科技", "34": "電子商務", "35": "綠能環保",
+    "36": "數位雲端", "37": "運動休閒", "38": "居家生活",
+}
+
+
+def industry_map(ref):
+    """{代號: 產業別代碼}。舊的參考資料快取沒有產業別時，另外抓一次存成 industry.json。"""
+    if ref and ref.get("industry"):
+        return ref["industry"]
+    path = os.path.join(CACHE_DIR, "industry.json")
+    if os.path.exists(path) and time.time() - os.path.getmtime(path) < 7 * 86400:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    try:
+        out = {r["公司代號"].strip(): (r.get("產業別") or "").strip()
+               for r in fetch_json("https://openapi.twse.com.tw/v1/opendata/t187ap03_L")}
+        out.update({r["SecuritiesCompanyCode"].strip(): (r.get("SecuritiesIndustryCode") or "").strip()
+                    for r in fetch_json("https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O")})
+    except Exception as e:
+        print(f"產業別讀取失敗：{e}")
+        return {}
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(out, fh)
+    return out
+
+
 def load_reference(today):
     """股本、注意股、處置股。每天快取一次。"""
     path = os.path.join(CACHE_DIR, f"ref_{today.strftime('%Y%m%d')}.json")
@@ -275,11 +307,13 @@ def load_reference(today):
         with open(path, encoding="utf-8") as fh:
             return json.load(fh)
 
-    capital = {}
+    capital, industry = {}, {}
     for r in fetch_json("https://openapi.twse.com.tw/v1/opendata/t187ap03_L"):
         capital[r["公司代號"].strip()] = num(r.get("實收資本額"))
+        industry[r["公司代號"].strip()] = (r.get("產業別") or "").strip()
     for r in fetch_json("https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O"):
         capital[r["SecuritiesCompanyCode"].strip()] = num(r.get("Paidin.Capital.NTDollars"))
+        industry[r["SecuritiesCompanyCode"].strip()] = (r.get("SecuritiesIndustryCode") or "").strip()
 
     attention = {}
     for r in fetch_json("https://openapi.twse.com.tw/v1/announcement/notice"):
@@ -297,7 +331,7 @@ def load_reference(today):
         if r.get("SecuritiesCompanyCode"):
             disposal[r["SecuritiesCompanyCode"].strip()] = r.get("DispositionPeriod", "")
 
-    ref = {"capital": capital, "attention": attention, "disposal": disposal}
+    ref = {"capital": capital, "attention": attention, "disposal": disposal, "industry": industry}
     os.makedirs(CACHE_DIR, exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(ref, fh, ensure_ascii=False)

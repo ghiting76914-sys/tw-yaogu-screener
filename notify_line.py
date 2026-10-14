@@ -421,10 +421,14 @@ def build_overnight_flex(data):
     body = [
         text("收盤前買進。明天兩種賣法擇一：① 開盤直接賣（平均賺最多）；② 掛「+2%賣」價格的限價單，"
              "沒成交就收盤前賣（勝率約 62%，但平均較少）。已漲停的委買排隊中，可能買不到。"
-             "⭐推薦（起漲第 1 根，或量能溫和且突破 60 日高）最近 12 個月回測平均 +1.2%，其他約 0%，資金有限時只買 ⭐；"
+             "⭐推薦＝強勢條件＋族群齊漲（同族群另有 ≥3 檔漲 5%），11 年回測平均 +1.1%、勝率 57%，其他約 -0.2%，資金有限時只買 ⭐；"
              "已漲停的排最後，排隊買到的多半是會被打開的，不建議追。", size="xs", color=MUTED, wrap=True),
         {"type": "separator"},
     ]
+    weak = (data.get("panic") or {}).get("breadth")
+    if weak is not None and weak < 30:
+        body.insert(0, text(f"⚠️ 大盤偏弱（市場廣度 {weak}%）：這種環境隔日沖回測平均為負，建議暫停或只買 ⭐。",
+                            size="xs", color=UP, weight="bold", wrap=True))
     if rows:
         body += [{"type": "box", "layout": "horizontal", "contents": [
             text("#", size="xxs", color=MUTED, flex=1), text("股票", size="xxs", color=MUTED, flex=6),

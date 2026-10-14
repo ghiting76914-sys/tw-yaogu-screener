@@ -20,8 +20,8 @@ SNAP_DIR = os.path.join(CACHE_DIR, "snapshots")
 COST = strategy.ROUND_TRIP_COST
 
 
-OVERNIGHT_FIELDS = ("推薦", "市場", "漲跌%", "開盤%", "量比", "漲停價", "限價賣出", "已漲停", "起漲第1根", "突破60日高",
-                    "理由", "風險")
+OVERNIGHT_FIELDS = ("推薦", "推薦原", "族群", "族群同漲", "族群齊漲", "市場", "漲跌%", "開盤%", "量比", "漲停價", "限價賣出",
+                    "已漲停", "起漲第1根", "突破60日高", "理由", "風險")
 
 
 def fixed_overnight(date, intraday, current, time):

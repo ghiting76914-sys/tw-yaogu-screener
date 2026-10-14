@@ -1857,7 +1857,7 @@ function renderPerf() {
     ${block("overnight", "⚡ 隔日沖", "12:30 名單當時的價格買進，隔天開盤賣出（已漲停排隊中的實際上可能買不到）。",
       `每筆平均 ${pct(O.train ? O.train.avg : null)}%～${pct(O.test ? O.test.avg : null)}%，勝率約 ${O.train ? O.train.win : "–"}～${O.test ? O.test.win : "–"}%（11 年）`)}
     ${P.overnight_rec ? block("overnight_rec", "⭐ 隔日沖（只買推薦）", "同一份 12:30 名單中標 ⭐ 推薦的股票（2026-10-14 起記錄），推播價格買進、隔天開盤賣出。",
-      `最近 12 個月回測每筆平均 ${pct(O.rec_recent ? O.rec_recent.avg : null)}%、勝率約 ${O.rec_recent ? O.rec_recent.win : "–"}%；其他股票約 ${pct(O.rec_recent ? O.rec_recent.other : null)}%`) : ""}
+      O.rec_heat ? `11 年回測每筆平均 ${pct(O.rec_heat.train.avg)}%／${pct(O.rec_heat.test.avg)}%、勝率約 ${O.rec_heat.test.win}%（⭐ 2026-10-14 起加入族群齊漲條件）` : "") : ""}
     ${block("overnight_limit", "⚡ 隔日沖（掛 +2% 限價賣）", "同一份名單，隔天掛買進價 +2% 的限價單，盤中碰到就賣、沒碰到收盤賣。",
       `每筆平均 ${pct(O.exit_limit ? O.exit_limit.train.avg : null)}%～${pct(O.exit_limit ? O.exit_limit.test.avg : null)}%，勝率約 ${O.exit_limit ? O.exit_limit.train.win : "–"}～${O.exit_limit ? O.exit_limit.test.win : "–"}%（11 年）`)}
     ${P.panic && P.panic.trades.length ? block("panic", "🚨 股災反彈", "訊號隔天開盤買、持有 5 個交易日收盤賣（同一天 ≥ 10 檔大跌後漲停時才觸發）。",
@@ -1981,7 +1981,7 @@ function renderOvernight() {
   const rowHtml = (list, mark) => list.map((p, i) => `
     <tr data-code="${p["代號"]}" class="${p["代號"] === state.selected ? "sel" : ""}">
       <td class="num">${i + 1}</td>
-      <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"] || ""}</span>${p["推薦"] ? ' <span class="chip sm red" title="起漲第 1 根，或量比 < 2 且突破 60 日高">⭐ 推薦</span>' : ""}${mark && pushed && pushedCodes.has(p["代號"]) ? ' <span class="chip sm dim">已推播</span>' : ""}${p["起漲第1根"] ? ' <span class="chip sm dim" title="前 20 天盤整後首度放量大漲">起漲第1根</span>' : ""}</td>
+      <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"] || ""}</span>${p["推薦"] ? ' <span class="chip sm red" title="起漲第 1 根，或量比 < 2 且突破 60 日高">⭐ 推薦</span>' : ""}${mark && pushed && pushedCodes.has(p["代號"]) ? ' <span class="chip sm dim">已推播</span>' : ""}${p["起漲第1根"] ? ' <span class="chip sm dim" title="前 20 天盤整後首度放量大漲">起漲第1根</span>' : ""}${p["族群"] ? ` <span class="chip sm ${p["族群齊漲"] ? "" : "dim"}" title="同族群今天另有 ${p["族群同漲"] || 0} 檔流動股漲 5% 以上">${esc(p["族群"])}${p["族群齊漲"] ? ` 齊漲 ${p["族群同漲"]}` : ""}</span>` : ""}</td>
       <td class="num">${fmt(p["現價"])}</td>
       <td class="num">${pct(p["漲跌%"])}%</td>
       <td class="num col-opt">${pct(p["開盤%"], 1)}%</td>
@@ -1994,11 +1994,12 @@ function renderOvernight() {
     <div class="banner">
       <div class="banner-head"><h3>隔日沖</h3><span class="sub">收盤前買進、明天開盤賣出</span></div>
       <div class="howto">
-        <span><b class="n">1</b>只買 ⭐推薦、還沒漲停的${R.rec_recent ? `<span class="muted" style="font-size:12px">（近 12 個月回測 ${pct(R.rec_recent.avg)}%，其他約 ${pct(R.rec_recent.other)}%）</span>` : ""}</span>
+        <span><b class="n">1</b>只買 ⭐推薦、還沒漲停的${R.rec_heat ? `<span class="muted" style="font-size:12px">（⭐＝強勢條件＋族群齊漲，11 年回測 ${pct(R.rec_heat.test.avg)}%、勝率 ${R.rec_heat.test.win}%；其他約 ${pct(R.others.avg)}%）</span>` : ""}</span>
         <span><b class="n">2</b>明天開盤賣（或掛 +2% 限價）</span>
         <span><b class="n">3</b>已漲停的不要排隊追</span>
       </div>
       ${status}
+      ${d.panic && d.panic.breadth != null && d.panic.breadth < 30 && R.weak_market ? `<p class="filter-note"><b class="down">⚠️ 大盤偏弱</b>：市場廣度只有 ${d.panic.breadth}%（流動股站上月線的比例 &lt; 30%）。這種環境下隔日沖 11 年回測平均 ${pct(R.weak_market.train.avg)}%／${pct(R.weak_market.test.avg)}%，<b>建議暫停或只買 ⭐</b>。</p>` : ""}
       ${pushedNote}
       <details class="more"><summary>選股條件、賣法、排序與回測數據</summary>
       <div class="muted" style="font-size:13px">盤中漲到 +7% 以上（開盤時還沒到 +7%）、股價接近或突破 60 日高點、成交量 1,000 張以上，排除處置股，最多 10 檔。</div>

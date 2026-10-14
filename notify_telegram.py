@@ -51,9 +51,12 @@ def overnight_msg(data):
         lines.append(f"{i}. {star}{name} {p['代號']}{pct}  現價 {p.get('現價', p.get('價格')):g}{lim}{state}")
     if not picks:
         lines.append("目前沒有符合條件的股票。")
-    rec = R.get("rec_recent")
-    lines += ["", "⭐ 推薦：起漲第 1 根，或量能溫和且突破 60 日高"
-              + (f"（近 12 個月回測 {rec['avg']:+.1f}%，其他約 {rec['other']:+.1f}%）" if rec else "")
+    rec = R.get("rec_heat")
+    weak = (data.get("panic") or {}).get("breadth")
+    if weak is not None and weak < 30:
+        lines += ["", f"⚠️ <b>大盤偏弱</b>（市場廣度 {weak}%）：這種環境隔日沖回測平均為負，建議暫停或只買 ⭐。"]
+    lines += ["", "⭐ 推薦：強勢條件＋族群齊漲（同族群另有 ≥3 檔漲 5%）"
+              + (f"，11 年回測平均 {rec['test']['avg']:+.1f}%、勝率 {rec['test']['win']:.0f}%" if rec else "")
               + "。資金有限時只買 ⭐、還沒漲停的。",
               "⚠️ 規則選股的觀察名單，非投資建議。"]
     return "\n".join(lines), button("看完整名單與理由", "#overnight")

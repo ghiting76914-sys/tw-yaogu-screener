@@ -754,7 +754,7 @@ def pre_backtest(history, market=None):
 漲停被打開的股票隔天開盤平均 -0.9%。抱到隔天收盤的結果明顯較差。
 """
 
-OVERNIGHT = {"min_pct": 7.0, "near_high": 0.98, "min_lots": 1000, "min_price": 10, "top": 10}
+OVERNIGHT = {"min_pct": 7.0, "near_high": 0.98, "min_lots": 1000, "min_price": 10, "top": 10, "heat": 3}
 OVERNIGHT_RESEARCH = {
     "period": "2015/04～2026/10", "train": {"win": 49.9, "avg": 0.17}, "test": {"win": 50.7, "avg": 0.26},
     "locked": "收盤鎖住漲停：隔天開盤平均 +1.6～2.0%、勝率約 70%（但收盤前通常買不到）",
@@ -768,8 +768,12 @@ OVERNIGHT_RESEARCH = {
     # research/overnight_rank.py：推薦分數（起漲第 1 根 2 分、量比 < 2 一分、突破 60 日高一分）≥ 2 vs 其他
     "rec": {"train": {"win": 54.8, "avg": 0.81}, "test": {"win": 55.8, "avg": 0.98}},
     "not_rec": {"train": {"win": 48.4, "avg": -0.02}, "test": {"win": 48.8, "avg": -0.03}},
-    # 最近 12 個月（2025/10～2026/10，SINCE=20251001）：推薦 vs 其他
-    "rec_recent": {"avg": 1.21, "win": 57.9, "other": 0.06},
+    # research/context_study.py：⭐ 推薦＝原本條件＋族群齊漲（2026-10-14 起），其他組合合計
+    "rec_heat": {"train": {"win": 57.5, "avg": 1.05}, "test": {"win": 57.0, "avg": 1.12}},
+    "rec_noheat": {"train": {"win": 48.7, "avg": 0.08}, "test": {"win": 48.7, "avg": 0.05}},
+    "others": {"avg": -0.23},
+    # 大盤廣度（流動股站上月線比例）< 30%：隔日沖平均為負
+    "weak_market": {"train": {"win": 42.7, "avg": -0.99}, "test": {"win": 45.8, "avg": -0.75}},
     # 已經漲停才看到、用漲停價排隊：收盤鎖住 +1.8～2.0%，被打開 -3.7～-3.9%（排得到的多半是後者）
     "queue_opened": -3.8,
 }
@@ -930,9 +934,28 @@ def daytrade_result(o, h, l, c, prev_close):
     return None, None
 
 
+def sector_heat(series, t, industry):
+    """各產業今天漲 ≥ 5% 的流動股（20 日均量 ≥ 500 張）檔數。research/context_study.py 的「族群同漲」。"""
+    heat = {}
+    for code, s in series.items():
+        r = s[t]
+        ind = industry.get(code)
+        if not ind or not r or r["close"] is None or r["change"] is None or r["close"] - r["change"] <= 0:
+            continue
+        vols = [x["volume"] or 0 for x in s[max(0, t - 19):t + 1] if x]
+        if len(vols) < 20 or sum(vols) / 20 < 500_000:
+            continue
+        if r["change"] / (r["close"] - r["change"]) >= 0.05:
+            heat[ind] = heat.get(ind, 0) + 1
+    return heat
+
+
 def overnight_picks(history, ref):
+    import yaogu
     series = build_series(history)
     t = len(history) - 1
+    industry = yaogu.industry_map(ref)
+    heat = sector_heat(series, t, industry)
     out = []
     for code, s in series.items():
         if code in ref["disposal"]:
@@ -959,20 +982,31 @@ def overnight_picks(history, ref):
             "漲停價": tick_floor(f["prev"] * 1.1), "已漲停": f["limit"],
             "限價賣出": limit_sell_price(r["close"]), "起漲第1根": f["first"],
             "突破60日高": r["high"] > f["prior_high"],
-            "推薦": 2 * f["first"] + bool(f["vol_ratio"] and f["vol_ratio"] < 2) + (r["high"] > f["prior_high"]) >= 2,
+            "推薦原": 2 * f["first"] + bool(f["vol_ratio"] and f["vol_ratio"] < 2) + (r["high"] > f["prior_high"]) >= 2,
+            "族群": yaogu.INDUSTRY_NAMES.get(industry.get(code, ""), ""),
+            # 同族群另外還有幾檔流動股今天漲 ≥ 5%（自己若也是流動股要扣掉）
+            "族群同漲": max(0, heat.get(industry.get(code, ""), 0) - 1),
             "量比": round(f["vol_ratio"], 2) if f["vol_ratio"] else None,
             "理由": reasons, "風險": risks,
         })
     # 越接近漲停排越前面（收盤鎖住漲停的隔天表現最好），同漲幅依量比
     # 排序（research/overnight_rank.py）：還沒漲停的在前（買得到；已漲停排隊買到的多半是被打開的），
     # 其中「推薦」（起漲第 1 根，或量比 < 2 且突破 60 日高）優先，同一層漲幅越大越前面
+    # ⭐ 推薦（research/context_study.py）：原本的條件＋族群齊漲（同族群另有 ≥ 3 檔漲 5%）；
+    # 兩者都有平均 +1.05%／+1.12%、勝率 57%，只有其中一個約 0%
     for p in out:
+        p["族群齊漲"] = p["族群同漲"] >= OVERNIGHT["heat"]
+        p["推薦"] = p["推薦原"] and p["族群齊漲"]
         if p["推薦"]:
             p["理由"].insert(0, "⭐ 推薦：" + ("起漲第 1 根" if p["起漲第1根"] else "量能溫和（量比 < 2）且突破 60 日高")
-                           + "；11 年回測這類平均 +0.8～1.0%，其他約 0%")
+                           + f"，而且{p['族群']}族群齊漲（另有 {p['族群同漲']} 檔漲 5% 以上）；11 年回測這類平均 +1.1%、勝率 57%")
+        elif p["族群齊漲"]:
+            p["理由"].append(f"{p['族群']}族群齊漲（另有 {p['族群同漲']} 檔漲 5% 以上）")
+        elif p["族群"]:
+            p["風險"].append(f"{p['族群']}族群沒有一起漲（單打獨鬥的隔日沖，回測平均約 -0.6%）")
         if p["已漲停"]:
             p["風險"].insert(0, "已漲停才看到只能排隊，排得到的多半是之後被打開的（回測平均 -3.8%），不建議排隊追")
-    out.sort(key=lambda p: (not p["已漲停"], p["推薦"], p["漲跌%"], p["量比"] or 0), reverse=True)
+    out.sort(key=lambda p: (not p["已漲停"], p["推薦"], p["族群齊漲"], p["漲跌%"], p["量比"] or 0), reverse=True)
     return out[:OVERNIGHT["top"]]
 
 
