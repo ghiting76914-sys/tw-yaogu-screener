@@ -48,6 +48,7 @@ async function mis(url, env) {
   const ex = url.searchParams.get("ex_ch") || "";
   if (!/^(tse|otc)_[0-9A-Z]{4,6}\.tw(\|(tse|otc)_[0-9A-Z]{4,6}\.tw){0,79}$/.test(ex)) return json({ error: "bad request" }, 400);
   let text = null, err = null;
+  if (url.searchParams.get("src") === "fugle" && env.FUGLE_KEY) text = await fugleQuotes(ex, env);  // 測試備援用
   for (let i = 0; i < 3 && !text; i++) {
     try { text = await misOnce(ex); } catch (e) { err = e; await new Promise((r) => setTimeout(r, 250 * (i + 1))); }
   }
