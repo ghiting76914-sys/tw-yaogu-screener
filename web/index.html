@@ -1270,25 +1270,37 @@ function renderDay() {
   const rows = D.list.map((p) => {
     const q = today ? alertState.prices[p["代號"]] : null;
     const gap = q && q.open ? (q.open / p["收盤"] - 1) * 100 : null;
-    const st = gap == null ? (!today ? "明天開盤看" : !inMarketHours() ? "等待開盤" : alertOn() ? "讀取開盤價中…" : '<span class="muted">開啟 🔔 盤中提醒後顯示</span>')
-      : q.open >= p["明日漲停"] ? "開盤就漲停，<b>不要放空</b>（可能整天買不回來）"
-      : gap >= g ? `<b class="down">做空</b>：開盤 ${fmt(q.open)}，停損 ${fmt(q.open * (1 + sl / 100))}`
-      : gap <= -g ? `<b class="up">做多</b>：開盤 ${fmt(q.open)}，停損 ${fmt(q.open * (1 - sl / 100))}`
-      : "跳空不到 3%，不交易";
+    const plan = `開盤 ≥ <b class="num">${fmt(p["做空觸發"])}</b> → 先賣（放空）｜開盤 ≤ <b class="num">${fmt(p["做多觸發"])}</b> → 買進｜中間 → 不做`;
+    const st = gap == null ? (!today ? `<span class="muted">明天 9:00 看開盤：</span>${plan}`
+        : !inMarketHours() ? `<span class="muted">9:00 看開盤：</span>${plan}`
+        : alertOn() ? "讀取開盤價中…" : plan)
+      : q.open >= p["明日漲停"] ? `開盤 ${fmt(q.open)} 就漲停 → <b>不要賣</b>（鎖住的話可能整天買不回來）`
+      : gap >= g ? `<b class="down">放空</b>：開盤 ${fmt(q.open)} 先賣 → 馬上設「漲到 <b class="num">${fmt(tickCeil(q.open * (1 + sl / 100)))}</b> 就買回」→ 13:25 前買回`
+      : gap <= -g ? `<b class="up">做多</b>：開盤 ${fmt(q.open)} 買進 → 馬上設「跌到 <b class="num">${fmt(tickFloor(q.open * (1 - sl / 100)))}</b> 就賣出」→ 13:25 前賣出`
+      : `開盤 ${fmt(q.open)}，沒有開高或開低超過 ${g}% → <b>今天不做</b>`;
     return `<tr data-code="${p["代號"]}" class="${p["代號"] === state.selected ? "sel" : ""}">
       <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span></td>
-      <td class="num">${fmt(p["收盤"])}</td><td class="num">${fmt(p["做空觸發"])}</td><td class="num">${fmt(p["做多觸發"])}</td>
-      <td class="num">${gap == null ? "–" : pct(gap) + "%"}</td><td class="l">${st}</td></tr>`;
+      <td class="num">${fmt(p["收盤"])}</td>
+      <td class="num">${gap == null ? "–" : `${fmt(q.open)}<br><span style="font-size:12px">${pct(gap)}%</span>`}</td><td class="l" style="white-space:normal">${st}</td></tr>`;
   }).join("");
   const v = (x) => `${pct(x.train.avg)}%／${pct(x.test.avg)}%（勝率 ${x.train.win}%／${x.test.win}%）`;
   $("dayView").innerHTML = `
     <div class="banner">
-      <div class="banner-head"><h3>當沖觀察</h3><span class="sub">前一天鎖漲停的股票，看開盤決定方向</span></div>
+      <div class="banner-head"><h3>當沖觀察</h3><span class="sub">前一天收盤鎖漲停的股票，看今天開盤高低決定做不做、怎麼做</span></div>
       <div class="howto">
-        <span><b class="n">1</b>開盤漲 ≥ ${g}% → 放空（開盤漲停不空）</span>
-        <span><b class="n">2</b>開盤跌 ≥ ${g}% → 做多<span class="muted" style="font-size:12px">（最近轉弱，僅參考）</span></span>
-        <span><b class="n">3</b>停損 ${sl}%，收盤前出場</span>
+        <span><b class="n">1</b>9:00 看開盤價（開 🔔 盤中提醒會自動通知）</span>
+        <span><b class="n">2</b>開很高（≥ 放空價）→ 先賣；開很低（≤ 買進價）→ 買進；中間 → 不做</span>
+        <span><b class="n">3</b>下單後馬上設 ${sl}% 停損單</span>
+        <span><b class="n">4</b>13:25 前一定平倉（放空的買回、做多的賣出）</span>
       </div>
+      <details class="more"><summary>白話說明：為什麼這樣做？要注意什麼？</summary>
+        <div style="font-size:13.5px;line-height:1.7">
+          <p style="margin:0 0 6px"><b>開很高 → 先賣</b>：前一天鎖漲停的股票，隔天開很高時，前一天買進的人（隔日沖大戶）常趁機賣出，股價容易往下走。所以開盤先賣，收盤前用比較低的價格買回，賺中間的價差。</p>
+          <p style="margin:0 0 6px"><b>開很低 → 買進</b>：被賣過頭時容易反彈，開盤買、收盤前賣（最近 6 個月這個方向轉弱，僅供參考）。</p>
+          <p style="margin:0 0 6px"><b>舉例</b>：10/13 匯鑽科前一天收 65.5（鎖漲停），放空價 67.5；隔天開盤 68.0 ≥ 67.5 → 開盤先賣 68.0，設「漲到 71.4 就買回」；收盤前 65.5 買回，扣成本約 +3.4%。</p>
+          <p style="margin:0"><b>要注意</b>：①「先賣後買」要先跟券商開通現股當沖；② 當天一定要平倉；③ 開盤就漲停的不要賣（鎖住會買不回來）；④ 約一半會停損或小賠，靠賺的時候多賺來累積，部位要小。</p>
+        </div>
+      </details>
       <div class="muted" style="font-size:12.5px;margin-top:8px">${today ? `今天（${twDay(twNow())}）要看的名單：${d.trade_date} 收盤鎖漲停、20 日均量 ≥ 1,000 張。` : `明天要看的名單：${d.trade_date} ${d.live && !d.live.final ? "盤中暫定（收盤後確認）" : "收盤"}鎖漲停、20 日均量 ≥ 1,000 張。`}開啟右上角「🔔 盤中提醒」，開盤跳空達條件時會跳出通知。</div>
       <details class="more"><summary>規則、風險與回測數據</summary>
       <dl class="plan" style="margin-top:4px">
@@ -1304,7 +1316,7 @@ function renderDay() {
     <div class="card" style="margin-top:12px">
       <div class="table-wrap" style="max-height:none">
         <table>
-          <thead><tr><th class="l">股票</th><th>前一天收盤（漲停）</th><th>做空：開盤 ≥</th><th>做多：開盤 ≤</th><th>開盤跳空</th><th class="l">今天動作</th></tr></thead>
+          <thead><tr><th class="l">股票</th><th>昨收（漲停）</th><th>今天開盤</th><th class="l">要做什麼${today && inMarketHours() && !alertOn() ? '<span class="muted" style="font-weight:400">（開啟右上角 🔔 盤中提醒，才會顯示開盤價和實際動作）</span>' : ""}</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
         ${D.list.length ? "" : `<div class="empty">沒有符合條件的股票（前一天沒有均量 1,000 張以上、收盤鎖漲停的股票）。</div>`}
@@ -1872,7 +1884,7 @@ function renderOvernight() {
   const nowCodes = new Set(d.overnight.map((p) => p["代號"]));
   const dropped = pushed ? pushed.list.filter((p) => !nowCodes.has(p["代號"])) : [];
   const added = pushed ? d.overnight.filter((p) => !pushedCodes.has(p["代號"])) : [];
-  const pushedNote = pushed && pushed.list.length && !lockList && (dropped.length || added.length || !intraday)
+  const pushedNote = pushed && pushed.list.length && !(d.overnight_fixed && d.overnight_fixed.kind === "pushed") && (dropped.length || added.length || !intraday)
     ? `<p class="filter-note">📌 <b>${esc((pushed.time || "").slice(0, 5))} 推播的名單</b>：${pushed.list.map((p) => `${esc(p["名稱"])} ${fmt(p["價格"])}`).join("、")}
         <span class="muted" style="display:block;font-size:12px;margin-top:2px">實際績效以這份計算${dropped.length ? `；${intraday ? "已不在目前名單" : "收盤後不符合"}：${dropped.map((p) => esc(p["名稱"])).join("、")}` : ""}${added.length ? `；${intraday ? "推播後才加入" : "收盤後才符合"}：${added.map((p) => esc(p["名稱"])).join("、")}` : ""}</span></p>` : "";
   // 名單固定規則（server 端 snapshots.fixed_overnight）：盤中 12:30 推播後固定為推播名單，收盤後 13:40 最後確認
