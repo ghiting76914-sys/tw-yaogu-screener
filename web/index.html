@@ -1408,6 +1408,7 @@ const HOLD_TYPES = {
   overnight: { name: "隔日沖", stop: null, days: 1 },
   day: { name: "當沖", stop: 5, days: 0 },
   swing: { name: "自訂波段", stop: 10, days: null },
+  long: { name: "長期持有（自己買的）", stop: null, days: null },
 };
 function holdings() {
   return loadJSON("yg-holdings", []).map((h) => (h.shares ? h : { ...h, shares: (h.lots || 1) * 1000 }));
@@ -1436,6 +1437,14 @@ function holdAdvice(h, price) {
   if (stop && price && price <= stop) return ["bad", `已跌破停損價 ${fmt(stop)}，依規則賣出`];
   if (T.days && days >= T.days) return ["bad", `已持有 ${days} 個交易日（滿 ${T.days} 天），依規則收盤賣出`];
   if (h.type === "swing" && x && price && x.ma20 && price < x.ma20) return ["warn", `跌破月線 ${fmt(x.ma20)}，趨勢轉弱，考慮減碼`];
+  if (h.type === "long") {
+    // 網站之前就買的股票：不套用停損與天數，只看趨勢與歷史相似情況（點這一列可看完整健檢）
+    if (!x || !price) return ["", "續抱（點這一列看個股健檢）"];
+    const sim = x.sim ? simVerdict(x.sim.s)[1].replace("歷史上", "") : null;
+    if (x.ma60 && price < x.ma60) return ["warn", `跌破季線 ${fmt(x.ma60)}，中期趨勢偏弱${sim ? `；歷史相似情況${sim}` : ""}，可考慮減碼`];
+    if (x.ma20 && price < x.ma20) return ["warn", `跌破月線 ${fmt(x.ma20)}，短線轉弱，留意季線 ${fmt(x.ma60)}${sim ? `；歷史相似情況${sim}` : ""}`];
+    return ["good", `站上月線與季線，趨勢偏多，續抱${sim ? `；歷史相似情況${sim}` : ""}`];
+  }
   return ["good", T.days ? `續抱，還有約 ${T.days - days} 個交易日` : "續抱"];
 }
 
@@ -1502,7 +1511,7 @@ async function renderHold() {
       <div class="table-wrap" style="max-height:none"><table>
         <thead><tr><th class="l">股票</th><th>買進（成交價）</th><th>現價</th><th>淨損益</th><th>損益平衡</th><th>停損／天數</th><th class="l">建議</th><th></th></tr></thead>
         <tbody>${rows}</tbody></table></div>
-      <div class="muted" style="font-size:12px;padding:8px 16px">「買進」請填實際成交價；停損價依成交價計算（與回測規則一致）。淨損益已扣買賣手續費（0.1425% × 折扣 ${settings().feeDisc}，零股每筆最低 1 元、整張最低 20 元）與證交稅（0.3%，當沖 0.15%）；損益平衡＝賣在這個價格剛好不賺不賠。持有天數以平日估算（未扣國定假日）。「買進依據」決定出場規則——精選 3 檔：停損 -10%、持有 20 個交易日；營收動能：持有 20 個交易日；隔日沖：隔天開盤賣；當沖：當天平倉；自訂波段：停損 -10%，跌破月線提醒。</div>`
+      <div class="muted" style="font-size:12px;padding:8px 16px">「買進」請填實際成交價；停損價依成交價計算（與回測規則一致）。淨損益已扣買賣手續費（0.1425% × 折扣 ${settings().feeDisc}，零股每筆最低 1 元、整張最低 20 元）與證交稅（0.3%，當沖 0.15%）；損益平衡＝賣在這個價格剛好不賺不賠。持有天數以平日估算（未扣國定假日）。「買進依據」決定出場規則——精選 3 檔：停損 -10%、持有 20 個交易日；營收動能：持有 20 個交易日；隔日沖：隔天開盤賣；當沖：當天平倉；自訂波段：停損 -10%，跌破月線提醒；長期持有（網站之前就買的）：不設停損與天數，跌破月線／季線提醒，並附歷史相似情況。</div>`
       : `<div class="empty">還沒有持股。搜尋股票後按「＋ 加入我的持股」，或用上面的表單新增。</div>`}
     </div>`;
   $("holdForm").onsubmit = (e) => {
