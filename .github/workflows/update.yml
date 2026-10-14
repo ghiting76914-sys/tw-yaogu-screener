@@ -28,6 +28,10 @@ on:
         description: "盤中預覽：用證交所即時行情當作今天（12:30 執行，推播隔日沖）"
         type: boolean
         default: false
+      telegram_sample:
+        description: "把今天推播給 LINE 的內容以「測試」標題傳到 Telegram 一次（並記為今天已發送）"
+        type: boolean
+        default: false
       skip_line:
         description: "不發送 LINE（測試網站更新用）"
         type: boolean
@@ -102,12 +106,12 @@ jobs:
 
       # Telegram（與 LINE 同樣的內容與時機；沒設定 TELEGRAM_BOT_TOKEN／TELEGRAM_CHAT_ID 就略過）
       - name: 傳送到 Telegram
-        if: ${{ !inputs.skip_line }}
+        if: ${{ !inputs.skip_line || inputs.telegram_sample }}
         continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python notify_telegram.py ${{ inputs.force_line && '--force' || '' }}
+        run: python notify_telegram.py ${{ inputs.force_line && '--force' || '' }} ${{ inputs.telegram_sample && '--sample' || '' }}
 
       # 公開 repo 60 天沒有程式更新時，GitHub 會自動停用排程；每次執行都重新啟用一次，計時就會重來
       - name: 保持自動更新啟用

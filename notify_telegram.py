@@ -47,7 +47,8 @@ def overnight_msg(data):
         lim = f"｜+2%賣 {p['限價賣出']:g}" if p.get("限價賣出") else ""
         state = "（已漲停，不建議排隊）" if p.get("已漲停") else ""
         name = f"<b>{e(p['名稱'])}</b>" if p.get("推薦") else e(p["名稱"])
-        lines.append(f"{i}. {star}{name} {p['代號']}  {p['漲跌%']:+.1f}%  現價 {p['現價']:g}{lim}{state}")
+        pct = f"  {p['漲跌%']:+.1f}%" if p.get("漲跌%") is not None else ""
+        lines.append(f"{i}. {star}{name} {p['代號']}{pct}  現價 {p.get('現價', p.get('價格')):g}{lim}{state}")
     if not picks:
         lines.append("目前沒有符合條件的股票。")
     rec = R.get("rec_recent")
@@ -107,6 +108,8 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="只印出內容，不發送")
     ap.add_argument("--test", action="store_true", help="傳一則測試訊息")
     ap.add_argument("--force", action="store_true", help="已發送過仍再發送")
+    ap.add_argument("--sample", action="store_true",
+                    help="把今天推播給 LINE 的內容（12:30 隔日沖、收盤後精選）以「測試」標題傳一次，並記為今天已發送")
     args = ap.parse_args()
 
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
@@ -122,6 +125,23 @@ def main():
 
     with open(N.LATEST, encoding="utf-8") as fh:
         data = json.load(fh)
+    if args.sample:
+        date = data["trade_date"].replace("-", "")
+        head = "🧪 <b>測試</b>：以下是今天推播給 LINE 的內容（Telegram 從下一個交易日起正式同步）\n\n"
+        pushed = data.get("overnight_pushed") or {}
+        if pushed.get("list"):
+            cur = {p["代號"]: p for p in data.get("overnight") or []}
+            rows = [{**cur.get(p["代號"], {}), **p} for p in pushed["list"]]
+            d2 = {**data, "overnight": rows, "live": {"time": pushed.get("time") or "12:30", "final": False}}
+            text, markup = overnight_msg(d2)
+            note = "（今天的存檔只有股票與推播價；漲幅、⭐ 為收盤後資料補上，可能與當時略有不同）\n\n"
+            if all(send(token, c, head + note + text, markup) for c in chats):
+                open(os.path.join(N.CACHE_DIR, f"tg_preview_{date}"), "w").close()
+        text, markup = close_msg(data)
+        if all(send(token, c, head + text, markup) for c in chats):
+            open(os.path.join(N.CACHE_DIR, f"tg_sent_{date}"), "w").close()  # 今天收盤後的正式更新不再重複發送
+        print("已傳送今天的推播範例到 Telegram")
+        return
     live = data.get("live")
     preview = bool(live and not live.get("final"))
     date = data["trade_date"].replace("-", "")
