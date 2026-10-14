@@ -105,7 +105,8 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         print(f"名單存檔失敗：{e}")
     data["overnight_pushed"] = snapshots.pushed_overnight(data["trade_date"])
     try:
-        data["perf"] = perf.compute(history)  # 存檔後再算，今天的名單也會列為「等待進場」
+        # 存檔後再算，今天的名單也會列為「等待進場」；盤中預覽時今天還沒收盤，需要收盤價的交易不算出場
+        data["perf"] = perf.compute(history, today_final=not (res["live"] and not res["live"]["final"]))
     except Exception as e:
         print(f"實際績效計算失敗：{e}")
         data["perf"] = None

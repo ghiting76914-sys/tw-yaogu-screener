@@ -41,7 +41,8 @@ def _summary(trades):
     }
 
 
-def compute(history):
+def compute(history, today_final=True):
+    """today_final=False：最後一天是盤中即時資料（還沒收盤），以收盤價出場的交易先標「盤中（未收盤）」不計入統計。"""
     dates = [d.isoformat() for d, _ in history]
     idx = {d: i for i, d in enumerate(dates)}
     n = len(history)
@@ -112,6 +113,14 @@ def compute(history):
                                          "報酬%": None, "狀態": "等待明天開盤", "天數": 0})
                     continue
                 side, ret = strategy.daytrade_result(b["open"], b["high"], b["low"], b["close"], p["價格"])
+                if side and not today_final and i + 1 == n - 1:
+                    # 今天還沒收盤：已經碰到停損的算出場，其餘標盤中、顯示目前損益但不計入統計
+                    stopped = ret <= -strategy.DAYTRADE["stop"] - strategy.DAYTRADE["cost"] + 1e-9
+                    if not stopped:
+                        cur = (b["open"] / b["close"] - 1) * 100 if side == "做空" else (b["close"] / b["open"] - 1) * 100
+                        daytrade.append({"日期": history[i + 1][0].isoformat(), "代號": p["代號"], "名稱": f"{p['名稱']}（{side}）",
+                                         "進場": b["open"], "出場": b["close"], "報酬%": round(cur, 2), "狀態": "持有中", "天數": 0})
+                        continue
                 if side:
                     daytrade.append({"日期": history[i + 1][0].isoformat(), "代號": p["代號"], "名稱": f"{p['名稱']}（{side}）",
                                      "進場": b["open"], "出場": b["close"], "報酬%": ret, "狀態": "已出場", "天數": 1})
@@ -132,9 +141,13 @@ def compute(history):
                 # 另一種賣法：隔天掛 +2% 限價，沒成交收盤賣
                 lim = strategy.limit_sell_fill(p["價格"], b["open"], b["high"], b["close"]) \
                     if b and p["價格"] and b.get("high") is not None else None
-                overnight_limit.append({"日期": d, "代號": p["代號"], "名稱": p["名稱"], "進場": p["價格"], "出場": lim,
-                                        "報酬%": round((lim / p["價格"] - 1) * 100 - COST, 2) if lim else None,
-                                        "狀態": "已出場" if lim else "等待隔天", "天數": 1 if lim else 0})
+                # 盤中還沒碰到限價：要等收盤才知道出場價
+                pending = lim is not None and not today_final and i + 1 == n - 1 \
+                    and lim < strategy.limit_sell_price(p["價格"]) and b["open"] < strategy.limit_sell_price(p["價格"])
+                overnight_limit.append({"日期": d, "代號": p["代號"], "名稱": p["名稱"], "進場": p["價格"],
+                                        "出場": None if pending else lim,
+                                        "報酬%": None if pending or not lim else round((lim / p["價格"] - 1) * 100 - COST, 2),
+                                        "狀態": "盤中（未收盤）" if pending else "已出場" if lim else "等待隔天", "天數": 1 if lim else 0})
     # 已出場帳本：出場的交易結果永久記下；行情只保留約 2 年（LOOKBACK），更早的名單算不出來時改用帳本
     try:
         with open(LEDGER, encoding="utf-8") as fh:
