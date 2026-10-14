@@ -1175,7 +1175,7 @@ async function pollBig() {
     const stop = lo ? tickFloor(lo) - tickSize(lo) : null;
     el.innerHTML = `
       <div class="sc-big-head"><h4>當沖／短線檢查（盤中）</h4><span class="seg">${opts}</span>
-        <span class="muted" style="font-size:12px">${isToday ? `統計到 ${usTime(j.last)}，共 ${j.trades.toLocaleString()} 筆成交` : `${j.date || ""} 的資料（今天尚未開盤或休市）`}</span></div>
+        <span class="muted" style="font-size:12px">${isToday ? `統計到 ${usTime(j.last)}，共 ${j.trades.toLocaleString()} 筆成交` : `${j.date || ""} 的資料（今天尚未開盤或休市）`}${j.stale ? `<span class="down">（暫時用稍早的資料：${esc(j.stale)}）</span>` : ""}</span></div>
       <div class="sc-verdict ${ours[0]}" style="margin-top:0"><b class="lv" style="font-size:15px">${ours[1]}</b>
         <span class="muted" style="margin-left:8px">當沖條件 ${passed}/5</span>
         <div style="margin-top:4px;font-size:13px">${ours[2]}</div></div>
@@ -1197,7 +1197,10 @@ async function pollBig() {
       <div class="muted" style="font-size:12px;margin-top:6px">條件參考「出量＋大單買超＋成交比 ≥ 2＋大單區間拉回」的當沖做法；大單以逐筆成交判斷（成交在委賣價算買方主動、委買價算賣方主動）。大單只有當天資料、無法回測，僅供參考；我們能驗證的是上方的隔日沖判斷。</div>`;
     el.querySelectorAll("button[data-min]").forEach((b) => b.onclick = () => { bigState.min = +b.dataset.min; el.style.opacity = .6; pollBig().then(() => { el.style.opacity = 1; }); });
   } catch (e) {
-    el.innerHTML = `<div class="muted">當沖檢查讀取失敗（${esc(String(e.message || e).slice(0, 60))}）</div>`;
+    const m = String(e.message || e);
+    el.innerHTML = `<div class="muted">當沖檢查暫時讀不到：${esc(/頻繁|429/.test(m) ? "富果免費額度每分鐘 60 次已用完" : /Failed to fetch|NetworkError|Load failed/i.test(m) ? "網路連線失敗" : m.slice(0, 60))}，1 分鐘後自動重試。</div>`;
+    bigState.timer = setTimeout(pollBig, 60000);
+    return;
   }
   if (inMarketHours()) bigState.timer = setTimeout(pollBig, 60000);
 }

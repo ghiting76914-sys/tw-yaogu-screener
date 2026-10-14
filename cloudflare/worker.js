@@ -1,93 +1,108 @@
 // 妖股雷達的即時資料轉接站（Cloudflare Worker）。網頁放在 GitHub Pages，瀏覽器不能直接讀這些資料（沒有開放跨網域）。
 //
 //   /?ex_ch=tse_2330.tw|otc_6488.tw   證交所 MIS 即時報價（盤中到價提醒、搜尋卡片即時價）
-//   /bigorders?symbol=2330&min=20     富果逐筆成交 → 今日均價與大單統計（搜尋卡片「盤中大單」）
+//   /bigorders?symbol=2330&min=25     富果逐筆成交 → 今日均價與大單統計（搜尋卡片「當沖／短線檢查」）
 //
 // 富果金鑰存在 Worker 的祕密變數 FUGLE_KEY（Settings → Variables and Secrets），不會出現在網頁或程式碼裡。
-// 只接受固定格式的參數，避免被拿去轉接其他網站；大單統計快取 60 秒，避免超過富果免費額度（每分鐘 60 次）。
+// 富果免費額度每分鐘 60 次、每次最多 500 筆：逐筆成交存在快取裡，之後只抓新增的成交（富果由新到舊排序），
+// 30 秒內重複查詢直接用快取；切換大單門檻不再呼叫富果；額度用完時回傳上一次的結果並標示 stale。
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS" };
 
-function json(obj, status = 200, extra = {}) {
+function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
-    status, headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", ...extra },
+    status, headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
   });
 }
 
 async function mis(url) {
   const ex = url.searchParams.get("ex_ch") || "";
-  if (!/^(tse|otc)_[0-9A-Z]{4,6}\.tw(\|(tse|otc)_[0-9A-Z]{4,6}\.tw){0,79}$/.test(ex)) {
-    return new Response("bad request", { status: 400, headers: CORS });
-  }
-  const upstream = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp?json=1&delay=0"
-    + `&ex_ch=${encodeURIComponent(ex)}&_=${Date.now()}`;
-  const res = await fetch(upstream, {
-    headers: { "User-Agent": "Mozilla/5.0", "Referer": "https://mis.twse.com.tw/stock/index.jsp" },
-  });
+  if (!/^(tse|otc)_[0-9A-Z]{4,6}\.tw(\|(tse|otc)_[0-9A-Z]{4,6}\.tw){0,79}$/.test(ex)) return json({ error: "bad request" }, 400);
+  const res = await fetch("https://mis.twse.com.tw/stock/api/getStockInfo.jsp?json=1&delay=0"
+    + `&ex_ch=${encodeURIComponent(ex)}&_=${Date.now()}`,
+    { headers: { "User-Agent": "Mozilla/5.0", "Referer": "https://mis.twse.com.tw/stock/index.jsp" } });
   return new Response(await res.text(), {
-    status: res.status,
-    headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
+    status: res.status, headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
   });
 }
 
-// 逐筆成交：成交價 ≥ 委賣價算「外盤（買方主動）」，≤ 委買價算「內盤（賣方主動）」，其餘不分
+// 逐筆成交壓成 [價格, 張數, 方向]：方向 1 = 成交在委賣價（買方主動）、-1 = 在委買價（賣方主動）、0 = 其他
+async function getTrades(symbol, env, ctx) {
+  const cache = caches.default;
+  const key = new Request(`https://cache.local/trades/${symbol}`);
+  const hit = await cache.match(key);
+  const stored = hit ? await hit.json() : null;
+  if (stored && Date.now() - stored.fetchedAt < 30000) return stored;
+  const fresh = [];
+  let date = null, last = null, maxSerial = 0, done = false;
+  try {
+    for (let page = 0, offset = 0; page < 20 && !done; page++, offset += 500) {
+      const r = await fetch(`https://api.fugle.tw/marketdata/v1.0/stock/intraday/trades/${symbol}?limit=500&offset=${offset}`,
+        { headers: { "X-API-KEY": env.FUGLE_KEY } });
+      if (!r.ok) throw new Error(r.status === 429 ? "富果查詢太頻繁（每分鐘 60 次）" : `富果 HTTP ${r.status}`);
+      const raw = await r.json();
+      const data = raw.data || [];
+      date = raw.date;
+      for (const t of data) {
+        if (stored && stored.date === date && t.serial <= stored.maxSerial) { done = true; break; }
+        if (!last) last = t.time;
+        if (t.serial > maxSerial) maxSerial = t.serial;
+        fresh.push([t.price, t.size, t.ask != null && t.price >= t.ask ? 1 : t.bid != null && t.price <= t.bid ? -1 : 0]);
+      }
+      if (data.length < 500) done = true;
+    }
+  } catch (e) {
+    if (stored) return { ...stored, stale: String(e.message || e) };  // 額度用完：先用上一次的結果
+    throw e;
+  }
+  const same = stored && stored.date === date;
+  const out = {
+    date, fetchedAt: Date.now(),
+    last: last || (same ? stored.last : null),
+    maxSerial: Math.max(maxSerial, same ? stored.maxSerial : 0),
+    t: same ? fresh.concat(stored.t) : fresh,
+  };
+  ctx.waitUntil(cache.put(key, new Response(JSON.stringify(out), { headers: { "Cache-Control": "max-age=86400" } })));
+  return out;
+}
+
 async function bigorders(url, env, ctx) {
   const symbol = url.searchParams.get("symbol") || "";
-  const min = Math.min(Math.max(parseInt(url.searchParams.get("min") || "20", 10) || 20, 1), 999);
+  const min = Math.min(Math.max(parseInt(url.searchParams.get("min") || "25", 10) || 25, 1), 999);
   if (!/^[0-9A-Z]{4,6}$/.test(symbol)) return json({ error: "bad symbol" }, 400);
   if (!env.FUGLE_KEY) return json({ error: "尚未設定 FUGLE_KEY" }, 500);
-
-  const cache = caches.default;
-  const key = new Request(`https://cache.local/bigorders/${symbol}/${min}`);
-  const hit = await cache.match(key);
-  if (hit) return new Response(hit.body, { headers: { ...Object.fromEntries(hit.headers), ...CORS } });
-
-  const trades = [];
-  let offset = 0, raw = null;
-  for (let page = 0; page < 30; page++) {
-    const r = await fetch(`https://api.fugle.tw/marketdata/v1.0/stock/intraday/trades/${symbol}?limit=500&offset=${offset}`,
-      { headers: { "X-API-KEY": env.FUGLE_KEY } });
-    if (!r.ok) return json({ error: `富果 HTTP ${r.status}`, detail: (await r.text()).slice(0, 200) }, 502);
-    raw = await r.json();
-    const data = raw.data || [];
-    trades.push(...data);
-    if (data.length < 500) break;
-    offset += 500;
-  }
-  // 富果盤中逐筆成交的 size 單位就是「張」（2026-10-14 實測：size 1、累計 volume 9879 張）
-  const lots = (t) => t.size || 0;
+  const T = await getTrades(symbol, env, ctx);
+  // 富果盤中逐筆成交的 size 單位就是「張」（2026-10-14 實測）
   let vol = 0, amt = 0;
-  const big = { buyCount: 0, sellCount: 0, buyVol: 0, sellVol: 0, buyAmt: 0, sellAmt: 0, otherVol: 0 };
-  for (const t of trades) {
-    const v = lots(t), p = t.price;
+  const b = { buyCount: 0, sellCount: 0, buyVol: 0, sellVol: 0, buyAmt: 0, sellAmt: 0, otherVol: 0 };
+  for (const [p, v, f] of T.t) {
     if (!(v > 0) || !(p > 0)) continue;
     vol += v; amt += v * p;
     if (v < min) continue;
-    if (t.ask != null && p >= t.ask) { big.buyCount++; big.buyVol += v; big.buyAmt += v * p; }
-    else if (t.bid != null && p <= t.bid) { big.sellCount++; big.sellVol += v; big.sellAmt += v * p; }
-    else big.otherVol += v;
+    if (f === 1) { b.buyCount++; b.buyVol += v; b.buyAmt += v * p; }
+    else if (f === -1) { b.sellCount++; b.sellVol += v; b.sellAmt += v * p; }
+    else b.otherVol += v;
   }
-  const out = {
-    symbol, min, date: raw && raw.date, trades: trades.length, last: trades[0] ? trades[0].time : null,
+  return json({
+    symbol, min, date: T.date, trades: T.t.length, last: T.last, stale: T.stale || null,
     vwap: vol ? amt / vol : null, volume: Math.round(vol),
     big: {
-      ...big, buyVol: Math.round(big.buyVol), sellVol: Math.round(big.sellVol), otherVol: Math.round(big.otherVol),
-      net: Math.round(big.buyVol - big.sellVol),
-      ratio: big.sellVol ? big.buyVol / big.sellVol : null,
-      buyAvg: big.buyVol ? big.buyAmt / big.buyVol : null,
-      sellAvg: big.sellVol ? big.sellAmt / big.sellVol : null,
+      ...b, net: Math.round(b.buyVol - b.sellVol),
+      ratio: b.sellVol ? b.buyVol / b.sellVol : null,
+      buyAvg: b.buyVol ? b.buyAmt / b.buyVol : null,
+      sellAvg: b.sellVol ? b.sellAmt / b.sellVol : null,
     },
-    sample: trades[0] || null,
-  };
-  const res = json(out, 200, { "Cache-Control": "max-age=60" });
-  ctx.waitUntil(cache.put(key, res.clone()));
-  return res;
+  });
 }
 
 export default {
   async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
     const url = new URL(request.url);
-    if (url.pathname === "/bigorders") return bigorders(url, env, ctx);
-    return mis(url);
+    try {
+      if (url.pathname === "/bigorders") return await bigorders(url, env, ctx);
+      return await mis(url);
+    } catch (e) {
+      return json({ error: String(e.message || e).slice(0, 120) }, 502);  // 一律帶跨網域標頭，網頁才看得到原因
+    }
   },
 };
