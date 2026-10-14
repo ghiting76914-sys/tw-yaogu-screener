@@ -1482,7 +1482,7 @@ async function renderHold() {
     <div class="banner">
       <div class="banner-head"><h3>我的持股</h3><span class="sub">依各策略的規則告訴你續抱、停損或到期賣出（資料只存在這台瀏覽器）</span></div>
       <div class="howto">
-        <span><b class="n">1</b>搜尋股票 → 卡片上按「＋ 加入我的持股」，或用下面的表單新增</span>
+        <span><b class="n">1</b>搜尋股票 → 卡片上按「＋ 加入我的持股」（會自動判斷買進依據），或用下面的表單新增</span>
         <span><b class="n">2</b>開啟 🔔 盤中提醒，跌破停損會通知</span>
         <span><b class="n">3</b>${S.capital ? `總資金 ${S.capital.toLocaleString()} 元、每筆最多虧 ${S.risk}%、單檔上限 ${S.maxPos}%、手續費 ${S.feeDisc} 折` : "尚未設定資金"}（<a href="#" data-act="settings">修改</a>）</span>
       </div>
@@ -1492,7 +1492,8 @@ async function renderHold() {
         <input name="price" type="number" step="0.01" placeholder="成交價" required style="width:100px">
         <input name="shares" type="number" step="1" min="1" placeholder="股數" value="1000" required style="width:100px" title="股數（1 張 = 1000 股）">
         <input name="date" type="date" value="${twDay(twNow())}" required>
-        <select name="type">${Object.entries(HOLD_TYPES).map(([k, t]) => `<option value="${k}">${t.name}</option>`).join("")}</select>
+        <label class="muted" style="font-size:13px" title="依哪個策略買的：決定停損與持有天數等出場規則">買進依據
+          <select name="type">${Object.entries(HOLD_TYPES).map(([k, t]) => `<option value="${k}">${t.name}</option>`).join("")}</select></label>
         <button type="submit" class="primary">新增</button>
       </form>
     </div>
@@ -1501,7 +1502,7 @@ async function renderHold() {
       <div class="table-wrap" style="max-height:none"><table>
         <thead><tr><th class="l">股票</th><th>買進（成交價）</th><th>現價</th><th>淨損益</th><th>損益平衡</th><th>停損／天數</th><th class="l">建議</th><th></th></tr></thead>
         <tbody>${rows}</tbody></table></div>
-      <div class="muted" style="font-size:12px;padding:8px 16px">「買進」請填實際成交價；停損價依成交價計算（與回測規則一致）。淨損益已扣買賣手續費（0.1425% × 折扣 ${settings().feeDisc}，零股每筆最低 1 元、整張最低 20 元）與證交稅（0.3%，當沖 0.15%）；損益平衡＝賣在這個價格剛好不賺不賠。持有天數以平日估算（未扣國定假日）。精選 3 檔：停損 -10%、持有 20 個交易日；營收動能：持有 20 個交易日；隔日沖：隔天開盤賣；當沖：當天平倉；自訂波段：停損 -10%，跌破月線提醒。</div>`
+      <div class="muted" style="font-size:12px;padding:8px 16px">「買進」請填實際成交價；停損價依成交價計算（與回測規則一致）。淨損益已扣買賣手續費（0.1425% × 折扣 ${settings().feeDisc}，零股每筆最低 1 元、整張最低 20 元）與證交稅（0.3%，當沖 0.15%）；損益平衡＝賣在這個價格剛好不賺不賠。持有天數以平日估算（未扣國定假日）。「買進依據」決定出場規則——精選 3 檔：停損 -10%、持有 20 個交易日；營收動能：持有 20 個交易日；隔日沖：隔天開盤賣；當沖：當天平倉；自訂波段：停損 -10%，跌破月線提醒。</div>`
       : `<div class="empty">還沒有持股。搜尋股票後按「＋ 加入我的持股」，或用上面的表單新增。</div>`}
     </div>`;
   $("holdForm").onsubmit = (e) => {
