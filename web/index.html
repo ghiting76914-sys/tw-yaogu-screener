@@ -170,6 +170,16 @@ tbody tr.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); 
 .sc-head h2 { margin: 0; font-size: 20px; }
 .sc-head .px { font-size: 24px; font-weight: 700; }
 .sc-close { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 0 4px; }
+.sc-big { margin-top: 12px; }
+.sc-big-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.sc-big-head h4 { margin: 0; font-size: 13px; color: var(--muted); }
+.sc-big-head .seg button { font-size: 12px; padding: 3px 10px; }
+.sc-big-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px; background: var(--line); border-radius: 12px; overflow: hidden; }
+.sc-big-grid > div { background: var(--panel-2); padding: 8px 10px; }
+.sc-big-grid .k { font-size: 12px; color: var(--muted); }
+.sc-big-grid .v { font-size: 15px; font-weight: 700; margin-top: 2px; }
+.sc-big-grid .s { font-size: 12px; margin-top: 2px; }
+@media (max-width: 900px) { .sc-big-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .sc-zone { background: var(--panel-2); border-radius: 12px; padding: 10px 14px; margin-top: 10px; }
 .sc-zone b { font-size: 18px; margin-left: 8px; }
 .sc-live { margin-top: 8px; font-size: 13.5px; display: block; }
@@ -1034,6 +1044,7 @@ function showStock(code) {
          <div class="muted" style="font-size:12.5px;margin-top:2px">${zone.note}</div>`
       : `<span class="muted">建議進場區間</span><b style="font-size:15px">目前沒有</b>
          <div class="muted" style="font-size:12.5px;margin-top:2px">這檔目前不符合回測驗證過的買進條件（${esc(v.lv)}），所以不給進場價；符合條件時這裡會顯示區間。</div>`}</div>
+    ${STATIC && !ALERT_WORKER ? "" : `<div class="sc-big" id="scBig"><div class="muted">讀取當沖／短線檢查…</div></div>`}
     <div class="sc-grid">
       <div>
         <h4>條件檢查</h4>
@@ -1065,9 +1076,11 @@ function showStock(code) {
       <span class="muted">規則判斷，非投資建議。</span>
     </div>`;
   el.hidden = false;
-  $("scClose").onclick = () => { el.hidden = true; clearTimeout(liveTimer); };
+  $("scClose").onclick = () => { el.hidden = true; clearTimeout(liveTimer); clearTimeout(bigState.timer); };
   liveStock = { code, x, swing: v.swing, zone };
   pollLive();
+  bigState.min = bigState.min || 25;
+  pollBig();
   const d = $("scDetail");
   if (d) d.onclick = (e) => { e.preventDefault(); select(code); $("detail").scrollIntoView({ behavior: "smooth" }); };
   el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1108,6 +1121,90 @@ async function pollLive() {
     $("scPxNote").textContent = `${searchData.date} 收盤（即時價讀取失敗：${alertErrorText(e)}，稍後重試）`;
   }
   if (inMarketHours()) liveTimer = setTimeout(pollLive, 20000);
+}
+
+// 盤中大單（富果逐筆成交，經 Cloudflare Worker 的 /bigorders 統計；Worker 端快取 60 秒）
+const bigState = { min: 25, timer: null };
+function usTime(us) {
+  if (!us) return "";
+  const d = new Date(us / 1000 + (new Date().getTimezoneOffset() + 480) * 60000);
+  return d.toTimeString().slice(0, 8);
+}
+async function pollBig() {
+  clearTimeout(bigState.timer);
+  const ls = liveStock, el = $("scBig");
+  if (!ls || !el || $("searchCard").hidden || !STATIC) return;
+  const x = ls.x;
+  try {
+    const [r, quotes] = await Promise.all([
+      fetch(`${ALERT_WORKER}bigorders?symbol=${ls.code}&min=${bigState.min}`, { cache: "no-store" }),
+      alertFetch([ls.code]).catch(() => ({})),
+    ]);
+    const j = await r.json();
+    if (liveStock !== ls) return;
+    if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
+    const B = j.big, q = quotes[ls.code];
+    const isToday = j.date === twDay(twNow());
+    const price = q ? q.price : null, prev = q && q.prev ? q.prev : x.c;
+    const chg = price ? (price / prev - 1) * 100 : null;
+    // 出量：盤中成交量換算全天（9:00～13:30 共 270 分鐘）÷ 20 日均量
+    const t = twNow(), mins = Math.min(270, Math.max(1, (t.getHours() - 9) * 60 + t.getMinutes()));
+    const projVol = q && q.vol ? (inMarketHours() ? q.vol * 270 / mins : q.vol) : null;
+    const vr = projVol && x.v20 ? projVol / x.v20 : null;
+    const kind = chg == null || vr == null || vr < 2 ? null : chg >= 9.7 ? "出量漲停" : chg >= 8 ? "出量強勢" : chg > 0 ? "出量突破" : null;
+    const lo = B.buyAvg && B.sellAvg ? Math.min(B.buyAvg, B.sellAvg) : B.buyAvg || null;
+    const checks = [
+      ["出量（預估全天量 ≥ 20 日均量 2 倍）", vr == null ? null : vr >= 2, vr == null ? "–" : `${vr.toFixed(1)} 倍${kind ? "・" + kind : ""}`],
+      [`大單買超（≥${j.min} 張）`, B.buyVol + B.sellVol ? B.net > 0 : null, `${B.net > 0 ? "+" : ""}${B.net.toLocaleString()} 張`],
+      ["買賣成交比 ≥ 2", B.ratio == null ? (B.buyVol ? true : null) : B.ratio >= 2, B.ratio == null ? (B.buyVol ? "只有買單" : "–") : B.ratio.toFixed(2)],
+      ["現價在今日均價之上", price && j.vwap ? price >= j.vwap : null, j.vwap ? `均價 ${fmt(j.vwap)}` : "–"],
+      ["沒有跌破大單區間（大戶成本）", price && lo ? price >= lo : null, lo ? `區間下緣 ${fmt(lo)}` : "–"],
+    ];
+    const passed = checks.filter((c) => c[1]).length;
+    // 我們驗證過的那一層：今天是否符合隔日沖、⭐ 推薦（strategy.py 的條件，盤中即時判斷）
+    const hi60 = Math.max(x.hi60, x.h || 0), high = q && q.high, open = q && q.open;
+    const overnight = !!(high && open && high / prev >= 1.07 && open / prev < 1.07 && high >= hi60 * 0.98 && q.vol >= 1000 && price >= 10);
+    const star = overnight && ((x.quiet && vr >= 2 && x.v20 >= 500) || (vr != null && vr < 2 && high > hi60));
+    const ours = star ? ["good", "符合隔日沖 ⭐ 推薦", "建議改成收盤前買、明天開盤賣：近 12 個月回測每筆平均 +1.2%；當天買當天賣（當沖做多）在 11 年回測整體是虧的。"]
+      : overnight ? ["", "符合隔日沖條件，但不是 ⭐", "回測這類股票隔天開盤賣平均約 0%，優勢不大。"]
+      : ["", "不符合隔日沖條件", chg != null && chg < 7 ? "今天漲幅還沒到 +7%。" : "今天的走勢不符合（需盤中漲到 +7%、開盤未到 +7%、接近 60 日高、量 ≥ 1,000 張）。"];
+    const yes = (b) => b == null ? '<span class="n">–</span>' : b ? '<span class="y">✓</span>' : '<span class="x">✗</span>';
+    const opts = [10, 20, 25, 50, 100].map((n) => `<button type="button" data-min="${n}" class="${n === bigState.min ? "on" : ""}">${n} 張</button>`).join("");
+    const pvToday = searchData.date < twDay(twNow());  // 搜尋資料是昨天的 → 樞紐點就是今天的參考
+    const pv = x.pv || {};
+    const stop = lo ? tickFloor(lo) - tickSize(lo) : null;
+    el.innerHTML = `
+      <div class="sc-big-head"><h4>當沖／短線檢查（盤中）</h4><span class="seg">${opts}</span>
+        <span class="muted" style="font-size:12px">${isToday ? `統計到 ${usTime(j.last)}，共 ${j.trades.toLocaleString()} 筆成交` : `${j.date || ""} 的資料（今天尚未開盤或休市）`}</span></div>
+      <div class="sc-verdict ${ours[0]}" style="margin-top:0"><b class="lv" style="font-size:15px">${ours[1]}</b>
+        <span class="muted" style="margin-left:8px">當沖條件 ${passed}/5</span>
+        <div style="margin-top:4px;font-size:13px">${ours[2]}</div></div>
+      <div class="sc-grid" style="margin-top:10px">
+        <div>
+          <ul class="sc-checks">${checks.map(([k, b, rr]) => `<li>${yes(b)}<span>${k}</span><span class="r num">${rr}</span></li>`).join("")}</ul>
+        </div>
+        <div>
+          <table class="sc-levels num">
+            <tr><td>大單買進</td><td class="v up">${B.buyCount} 筆</td><td class="h">${B.buyVol.toLocaleString()} 張，均價 ${B.buyAvg ? fmt(B.buyAvg) : "–"}</td></tr>
+            <tr><td>大單賣出</td><td class="v down">${B.sellCount} 筆</td><td class="h">${B.sellVol.toLocaleString()} 張，均價 ${B.sellAvg ? fmt(B.sellAvg) : "–"}</td></tr>
+            <tr><td>拉回進場</td><td class="v">${B.buyAvg && j.vwap ? `${fmt(Math.min(B.buyAvg, j.vwap))}～${fmt(Math.max(B.buyAvg, j.vwap))}` : "–"}</td><td class="h">大單買進均價～今日均價</td></tr>
+            <tr><td>停損</td><td class="v down">${stop ? fmt(stop) : "–"}</td><td class="h">跌破大單區間下緣（大戶成本）</td></tr>
+            <tr><td>目標</td><td class="v up">${(() => { const up = [["R1", pv.R1], ["R2", pv.R2]].filter(([, v]) => v && (!price || v > price));
+              return up.length ? up.map(([k, v]) => `${k} ${fmt(v)}`).join("／") : "已過 R2"; })()}</td><td class="h">${pvToday ? "今天的" : "下一個交易日的"}壓力（只列現價上方）</td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:6px">條件參考「出量＋大單買超＋成交比 ≥ 2＋大單區間拉回」的當沖做法；大單以逐筆成交判斷（成交在委賣價算買方主動、委買價算賣方主動）。大單只有當天資料、無法回測，僅供參考；我們能驗證的是上方的隔日沖判斷。</div>`;
+    el.querySelectorAll("button[data-min]").forEach((b) => b.onclick = () => { bigState.min = +b.dataset.min; el.style.opacity = .6; pollBig().then(() => { el.style.opacity = 1; }); });
+  } catch (e) {
+    el.innerHTML = `<div class="muted">當沖檢查讀取失敗（${esc(String(e.message || e).slice(0, 60))}）</div>`;
+  }
+  if (inMarketHours()) bigState.timer = setTimeout(pollBig, 60000);
+}
+function alertStatePrice(code) {
+  const t = $("scPx");
+  const v = t ? parseFloat(t.textContent.replace(/,/g, "")) : NaN;
+  return v > 0 ? v : null;
 }
 
 (function setupSearch() {

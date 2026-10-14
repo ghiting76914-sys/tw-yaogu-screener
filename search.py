@@ -51,16 +51,21 @@ def build(history, ref, data):
         f = revenue.features(rev, code, day) if rev else None
         pv = strategy.pivot_levels(r["high"], r["low"], c)
         atr = strategy._atr(past + [r])
+        base = past[-20:]
+        quiet = (len(base) == 20 and max(x["close"] for x in base) / min(x["close"] for x in base) <= 1.15
+                 and not any(x["change"] is not None and x["close"] - x["change"] > 0
+                             and x["change"] / (x["close"] - x["change"]) >= 0.05 for x in base))
         prev = c - r["change"]
         tags = [k for k, v in lists.items() if code in v]
         out[code] = {
             "n": r["name"], "m": r["market"], "c": c, "p": _r(r["change"] / prev * 100) if prev > 0 else None,
             "v": round((r["volume"] or 0) / 1000), "v20": round(sum(vols) / 20 / 1000),
-            "ma20": _r(ma20), "ma60": _r(ma60), "hi60": hi60,
+            "ma20": _r(ma20), "ma60": _r(ma60), "hi60": hi60, "h": r["high"],
             "atr": _r(atr), "pv": {k: _r(v) for k, v in pv.items() if k != "P"},
             "rev": {"ym": f["ym"], "yoy": _r(f["yoy"], 1), "h12": f["high12"]} if f else None,
             "tags": tags,
             "warn": ("處置股" if code in disposal else "注意股" if code in attention else None),
             "spark": [_r(x, 2) for x in closes[-20:]],
+            "quiet": quiet,  # 前 20 天盤整（波動 ≤ 15%、沒有大漲）：盤中判斷「起漲第 1 根」用
         }
     return {"date": day.isoformat(), "stocks": out}
