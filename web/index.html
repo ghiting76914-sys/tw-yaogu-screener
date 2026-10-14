@@ -180,6 +180,10 @@ tbody tr.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); 
 .sc-head .px { font-size: 24px; font-weight: 700; }
 .sc-close { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 0 4px; }
 .sc-sim { margin-top: 12px; }
+.sc-size { margin-top: 10px; font-size: 13.5px; padding: 9px 12px; border-radius: 10px; background: var(--panel-2); }
+.sc-size a, #holdView a { color: var(--accent); }
+.hold-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+.hold-form input, .hold-form select { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font-size: 14px; }
 .sc-sim h4 { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
 .sc-sim-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .sc-big { margin-top: 12px; }
@@ -496,6 +500,7 @@ html { scroll-behavior: smooth; }
     <button data-v="overnight">隔日沖<span class="count num" id="cntOvernight">–</span></button>
     <button data-v="day">當沖<span class="count num" id="cntDay">–</span></button>
     <button data-v="rev">營收動能<span class="count num" id="cntRev">–</span></button>
+    <button data-v="hold">我的持股<span class="count num" id="cntHold">–</span></button>
     <button data-v="perf">實際績效</button>
     <button data-v="etf">ETF 專區<span class="count" id="etfTemp">–</span></button>
     <span class="tab-sep" title="這三個分頁的名單，2 年回測都沒有明顯優勢，僅供觀察">觀察</span>
@@ -580,6 +585,7 @@ html { scroll-behavior: smooth; }
     <div id="overnightView" hidden></div>
     <div id="dayView" hidden></div>
     <div id="perfView" hidden></div>
+    <div id="holdView" hidden></div>
     <div id="revView" hidden></div>
     <div id="etfView" hidden></div>
     <div id="preView" hidden>
@@ -719,6 +725,7 @@ async function runScreen(silent = false) {
     renderTop3();
     renderPanic();
     renderPerf();
+    renderHold();
     alertSetup();
     const first = listFor(state.view)[0];
     const keep = state.selected && findStock(state.selected);
@@ -1123,6 +1130,8 @@ function showStock(code) {
          <div class="muted" style="font-size:12.5px;margin-top:2px">${zone.note}</div>`
       : `<span class="muted">建議進場區間</span><b style="font-size:15px">目前沒有</b>
          <div class="muted" style="font-size:12.5px;margin-top:2px">這檔目前不符合回測驗證過的買進條件（${esc(v.lv)}），所以不給進場價；符合條件時這裡會顯示區間。</div>`}</div>
+    ${v.swing ? sizeHtml(zone ? zone.best : x.c, 10, "") : ""}
+    <div style="margin-top:10px"><button type="button" class="info-btn" id="scAddHold">＋ 加入我的持股</button></div>
     ${simHtml(x)}
     ${STATIC && !ALERT_WORKER ? "" : `<div class="sc-big" id="scBig"><div class="muted">讀取當沖／短線檢查…</div></div>`}
     <div class="sc-grid">
@@ -1157,6 +1166,12 @@ function showStock(code) {
     </div>`;
   el.hidden = false;
   $("scClose").onclick = () => { el.hidden = true; clearTimeout(liveTimer); clearTimeout(bigState.timer); };
+  $("scAddHold").onclick = () => {
+    const tags = new Set(x.tags);
+    const type = tags.has("top3") ? "top3" : tags.has("rev") ? "rev" : tags.has("rec") || tags.has("overnight") ? "overnight" : tags.has("day") ? "day" : "swing";
+    const live = parseFloat(($("scPx").textContent || "").replace(/,/g, ""));
+    addHolding(code, live > 0 ? live : x.c, type);
+  };
   liveStock = { code, x, swing: v.swing, zone };
   pollLive();
   bigState.min = bigState.min || 25;
@@ -1327,6 +1342,192 @@ function alertStatePrice(code) {
   inp.addEventListener("blur", () => setTimeout(() => { box.hidden = true; }, 150));
 })();
 
+// ---------------------------------------------------------------- 資金設定與部位大小（只存在這台瀏覽器）
+function loadJSON(key, dflt) { try { return JSON.parse(localStorage.getItem(key)) ?? dflt; } catch (e) { return dflt; } }
+function saveJSON(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) { /* 無法儲存 */ } }
+function settings() { return { capital: 0, risk: 1, maxPos: 20, ...loadJSON("yg-settings", {}) }; }
+
+// 依停損距離算建議張數：停損時虧損 ≤ 總資金 × risk%，單檔金額 ≤ 總資金 × maxPos%
+function positionSize(price, stopPct) {
+  const S = settings();
+  if (!S.capital || !price || !stopPct) return null;
+  const byRisk = S.capital * S.risk / 100 / (price * stopPct / 100);
+  const byCap = S.capital * S.maxPos / 100 / price;
+  const shares = Math.floor(Math.min(byRisk, byCap));
+  const lots = Math.floor(shares / 1000);
+  const qty = lots >= 1 ? lots * 1000 : shares;
+  return { lots, shares: qty, odd: lots < 1, cost: qty * price, loss: qty * price * stopPct / 100,
+           limitedBy: byCap < byRisk ? "單檔上限" : "停損虧損上限", S };
+}
+
+function sizeHtml(price, stopPct, label) {
+  const S = settings();
+  if (!S.capital) return `<div class="sc-size muted">💰 <a href="#" data-act="settings">設定總資金</a>，就能算出建議買幾張、停損時大約虧多少。</div>`;
+  const z = positionSize(price, stopPct);
+  if (!z || z.shares < 1) return `<div class="sc-size muted">💰 以總資金 ${S.capital.toLocaleString()} 元、每筆最多虧 ${S.risk}%，這檔一股都不夠買。</div>`;
+  return `<div class="sc-size">💰 <b>建議買 ${z.odd ? `${z.shares.toLocaleString()} 股（零股）` : `${z.lots} 張`}</b>
+    <span class="muted">約 ${Math.round(z.cost).toLocaleString()} 元（占資金 ${(z.cost / S.capital * 100).toFixed(0)}%）；${label}停損 ${stopPct}% 時約虧 ${Math.round(z.loss).toLocaleString()} 元（${(z.loss / S.capital * 100).toFixed(1)}%）。
+    依「${z.limitedBy}」計算，<a href="#" data-act="settings">修改資金設定</a></span></div>`;
+}
+
+function editSettings() {
+  const S = settings();
+  const cap = prompt("總投資資金（元）", S.capital || 1000000);
+  if (cap === null) return;
+  const risk = prompt("每一筆最多願意虧總資金的幾 %？（建議 0.5～2）", S.risk);
+  if (risk === null) return;
+  const maxPos = prompt("單一股票最多占總資金幾 %？（建議 10～25）", S.maxPos);
+  if (maxPos === null) return;
+  saveJSON("yg-settings", { capital: Math.max(0, parseFloat(cap) || 0), risk: Math.min(10, Math.max(0.1, parseFloat(risk) || 1)),
+                            maxPos: Math.min(100, Math.max(1, parseFloat(maxPos) || 20)) });
+  if (liveStock) showStock(liveStock.code);
+  renderHold();
+}
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("[data-act=settings]");
+  if (a) { e.preventDefault(); editSettings(); }
+});
+
+// ---------------------------------------------------------------- 我的持股（只存在這台瀏覽器）
+const HOLD_TYPES = {
+  top3: { name: "精選 3 檔", stop: 10, days: 20 },
+  rev: { name: "營收動能", stop: null, days: 20 },
+  overnight: { name: "隔日沖", stop: null, days: 1 },
+  day: { name: "當沖", stop: 5, days: 0 },
+  swing: { name: "自訂波段", stop: 10, days: null },
+};
+function holdings() { return loadJSON("yg-holdings", []); }
+const holdPrices = {};
+let holdTimer = null;
+
+// 持有天數：買進日之後到今天的平日數（未扣國定假日，僅供估算）
+function tradingDaysSince(dateStr) {
+  const d0 = new Date(dateStr + "T00:00:00"), today = twNow();
+  let n = 0;
+  for (let d = new Date(d0.getTime() + 86400000); d <= today; d = new Date(d.getTime() + 86400000)) {
+    const w = d.getDay();
+    if (w >= 1 && w <= 5) n++;
+  }
+  return n;
+}
+
+function holdAdvice(h, price) {
+  const T = HOLD_TYPES[h.type] || HOLD_TYPES.swing, days = tradingDaysSince(h.date);
+  const stop = T.stop ? h.price * (1 - T.stop / 100) : null;
+  const x = searchData && searchData.stocks[h.code];
+  if (h.type === "day") return days >= 1 ? ["bad", "當沖應在買進當天收盤前平倉"] : ["", "今天 13:25 前平倉；跌到停損價就先出場"];
+  if (h.type === "overnight") return days >= 1 ? ["bad", "隔日沖：今天開盤賣出（或掛 +2% 限價，沒成交收盤前賣）"] : ["", "收盤前買、明天開盤賣"];
+  if (stop && price && price <= stop) return ["bad", `已跌破停損價 ${fmt(stop)}，依規則賣出`];
+  if (T.days && days >= T.days) return ["bad", `已持有 ${days} 個交易日（滿 ${T.days} 天），依規則收盤賣出`];
+  if (h.type === "swing" && x && price && x.ma20 && price < x.ma20) return ["warn", `跌破月線 ${fmt(x.ma20)}，趨勢轉弱，考慮減碼`];
+  return ["good", T.days ? `續抱，還有約 ${T.days - days} 個交易日` : "續抱"];
+}
+
+async function refreshHoldPrices() {
+  const H = holdings();
+  if (!H.length) return;
+  const codes = [...new Set(H.map((h) => h.code))];
+  if (!(STATIC && !ALERT_WORKER)) {
+    try { Object.assign(holdPrices, await alertFetch(codes)); } catch (e) { /* 讀不到就用收盤價 */ }
+  }
+}
+
+async function renderHold() {
+  const el = $("holdView");
+  const H = holdings();
+  $("cntHold").textContent = H.length || "–";
+  if (!el || el.hidden) return;
+  await loadSearch();
+  const S = settings();
+  let totCost = 0, totNow = 0;
+  const rows = H.map((h, i) => {
+    const x = searchData && searchData.stocks[h.code];
+    const q = holdPrices[h.code];
+    const price = q ? q.price : x ? x.c : null;
+    const qty = h.lots * 1000;
+    const pnl = price ? (price / h.price - 1) * 100 : null;
+    totCost += h.price * qty; totNow += (price || h.price) * qty;
+    const T = HOLD_TYPES[h.type] || HOLD_TYPES.swing;
+    const adv = holdAdvice(h, price);
+    const stop = T.stop ? h.price * (1 - T.stop / 100) : null;
+    return `<tr data-code="${h.code}">
+      <td class="l"><span class="name">${esc(h.name || (x && x.n) || h.code)}</span><span class="code num">${h.code}</span><div class="muted" style="font-size:11px">${T.name}・${h.date} 買</div></td>
+      <td class="num">${fmt(h.price)}<div class="muted" style="font-size:11px">${h.lots} 張</div></td>
+      <td class="num">${price ? fmt(price) : "–"}<div class="muted" style="font-size:11px">${q ? `即時 ${esc((q.time || "").slice(0, 5))}` : x ? "收盤" : ""}</div></td>
+      <td class="num ${pnl > 0 ? "up" : pnl < 0 ? "down" : ""}">${pnl == null ? "–" : pct(pnl) + "%"}<div style="font-size:11px">${price ? `${Math.round((price - h.price) * qty).toLocaleString()} 元` : ""}</div></td>
+      <td class="num">${stop ? fmt(stop) : "–"}<div class="muted" style="font-size:11px">${tradingDaysSince(h.date)} 天</div></td>
+      <td class="l" style="white-space:normal"><b class="${adv[0] === "bad" ? "down" : adv[0] === "good" ? "up" : ""}">${esc(adv[1])}</b></td>
+      <td><button type="button" data-del="${i}" class="info-btn" title="刪除">✕</button></td></tr>`;
+  }).join("");
+  const tot = totCost ? (totNow / totCost - 1) * 100 : null;
+  el.innerHTML = `
+    <div class="banner">
+      <div class="banner-head"><h3>我的持股</h3><span class="sub">依各策略的規則告訴你續抱、停損或到期賣出（資料只存在這台瀏覽器）</span></div>
+      <div class="howto">
+        <span><b class="n">1</b>搜尋股票 → 卡片上按「＋ 加入我的持股」，或用下面的表單新增</span>
+        <span><b class="n">2</b>開啟 🔔 盤中提醒，跌破停損會通知</span>
+        <span><b class="n">3</b>${S.capital ? `總資金 ${S.capital.toLocaleString()} 元、每筆最多虧 ${S.risk}%、單檔上限 ${S.maxPos}%` : "尚未設定資金"}（<a href="#" data-act="settings">修改</a>）</span>
+      </div>
+      <form id="holdForm" class="hold-form">
+        <input name="code" placeholder="代號" required list="holdCodes" autocomplete="off" style="width:90px">
+        <datalist id="holdCodes">${searchData ? Object.entries(searchData.stocks).slice(0, 2500).map(([c, x]) => `<option value="${c}">${esc(x.n)}</option>`).join("") : ""}</datalist>
+        <input name="price" type="number" step="0.01" placeholder="買進價" required style="width:100px">
+        <input name="lots" type="number" step="1" min="1" placeholder="張數" value="1" required style="width:70px">
+        <input name="date" type="date" value="${twDay(twNow())}" required>
+        <select name="type">${Object.entries(HOLD_TYPES).map(([k, t]) => `<option value="${k}">${t.name}</option>`).join("")}</select>
+        <button type="submit" class="primary">新增</button>
+      </form>
+    </div>
+    <div class="card" style="margin-top:12px">
+      ${H.length ? `<div class="card-title">持股 ${H.length} 檔${tot != null ? `，合計 <span class="${tot > 0 ? "up" : tot < 0 ? "down" : ""}">${pct(tot)}%（${Math.round(totNow - totCost).toLocaleString()} 元）</span>` : ""}</div>
+      <div class="table-wrap" style="max-height:none"><table>
+        <thead><tr><th class="l">股票</th><th>買進</th><th>現價</th><th>損益</th><th>停損／天數</th><th class="l">建議</th><th></th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+      <div class="muted" style="font-size:12px;padding:8px 16px">持有天數以平日估算（未扣國定假日）。精選 3 檔：停損 -10%、持有 20 個交易日；營收動能：持有 20 個交易日；隔日沖：隔天開盤賣；當沖：當天平倉；自訂波段：停損 -10%，跌破月線提醒。</div>`
+      : `<div class="empty">還沒有持股。搜尋股票後按「＋ 加入我的持股」，或用上面的表單新增。</div>`}
+    </div>`;
+  $("holdForm").onsubmit = (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target), code = String(f.get("code")).trim().toUpperCase();
+    const x = searchData && searchData.stocks[code];
+    const list = holdings();
+    list.push({ code, name: x ? x.n : "", price: parseFloat(f.get("price")), lots: parseInt(f.get("lots"), 10) || 1,
+                date: String(f.get("date")), type: String(f.get("type")) });
+    saveJSON("yg-holdings", list);
+    alertSetup();
+    renderHold();
+  };
+  el.querySelectorAll("button[data-del]").forEach((b) => b.onclick = () => {
+    const list = holdings();
+    if (!confirm(`刪除 ${list[+b.dataset.del].code}？`)) return;
+    list.splice(+b.dataset.del, 1);
+    saveJSON("yg-holdings", list);
+    alertSetup();
+    renderHold();
+  });
+  clearTimeout(holdTimer);
+  if (inMarketHours() && H.length) holdTimer = setTimeout(async () => { await refreshHoldPrices(); renderHold(); }, 30000);
+}
+$("holdView").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-code]");
+  if (tr && !e.target.closest("button")) loadSearch().then(() => showStock(tr.dataset.code));
+});
+
+// 搜尋卡片：加入我的持股
+function addHolding(code, price, type) {
+  const x = searchData && searchData.stocks[code];
+  const p = prompt(`買進價（${x ? x.n : code}）`, price);
+  if (p === null) return;
+  const lots = prompt("張數", "1");
+  if (lots === null) return;
+  const list = holdings();
+  list.push({ code, name: x ? x.n : "", price: parseFloat(p), lots: parseInt(lots, 10) || 1, date: twDay(twNow()), type });
+  saveJSON("yg-holdings", list);
+  alertSetup();
+  renderHold();
+  alertToast(`已加入我的持股：${x ? x.n : code}，可到「我的持股」分頁查看`);
+}
+
 // ---------------------------------------------------------------- 當沖觀察
 
 // 名單是否為「今天」要盯的（前一交易日收盤後產生、還沒到 12:30 盤中預覽）
@@ -1458,6 +1659,15 @@ function alertTargets() {
   const dip = d.etf && d.etf.dip;
   if (dip) dip.prices.filter((x) => !x.hit && x.level <= 10).forEach((x) => out.push({ key: `etf-${x.level}`, code: "0050", name: "元大台灣50",
     kind: "0050 回檔", desc: `回檔 ${x.level}%（${x.label}）${fmt(x.price)}`, hit: (q) => q.price <= x.price }));
+  // 我的持股：跌破停損價通知
+  holdings().forEach((h, i) => {
+    const T = HOLD_TYPES[h.type] || HOLD_TYPES.swing;
+    if (!T.stop) return;
+    const stop = h.price * (1 - T.stop / 100);
+    out.push({ key: `hold-${h.code}-${i}-${h.date}`, code: h.code, name: h.name || h.code, kind: "持股停損",
+      desc: `停損價 ${fmt(stop)}（買進 ${fmt(h.price)}，${T.name}）`, hit: (q) => q.price <= stop,
+      msg: (q) => `持股跌破停損：現價 ${fmt(q.price)} ≤ 停損價 ${fmt(stop)}（買進 ${fmt(h.price)}），依規則賣出` });
+  });
   // 當沖觀察：開盤跳空 ≥ 3% 時通知方向與停損價
   if (dayListIsToday()) {
     const D = d.daytrade, g = D.rules.gap, sl = D.rules.stop;
@@ -2292,6 +2502,8 @@ function setView(v) {
   $("overnightView").hidden = v !== "overnight";
   $("dayView").hidden = v !== "day";
   $("perfView").hidden = v !== "perf";
+  $("holdView").hidden = v !== "hold";
+  if (v === "hold") { renderHold(); refreshHoldPrices().then(renderHold); showEmptyDetail(); return; }
   if (v === "etf") { renderEtfDetail(); return; }
   if (v === "perf") { showEmptyDetail(); return; }
   const list = listFor(v);
@@ -2498,7 +2710,7 @@ renderHead();
   const h = location.hash.slice(1);
   const now = new Date(), hm = now.getHours() * 100 + now.getMinutes(), wd = now.getDay();
   const intraday = wd >= 1 && wd <= 5 && hm >= 900 && hm <= 1330;
-  setView(["overnight", "day", "picks", "pre", "rev", "etf", "perf", "radar"].includes(h) ? h : (intraday ? "overnight" : "rev"));
+  setView(["overnight", "day", "picks", "pre", "rev", "etf", "perf", "hold", "radar"].includes(h) ? h : (intraday ? "overnight" : "rev"));
 }
 runScreen();
 </script>
