@@ -917,7 +917,16 @@ function renderDay() {
 // 靜態網站無法直接讀證交所即時行情（沒有開放跨網域），透過自己的 Cloudflare Worker 轉接（cloudflare/worker.js）；
 // 盤中每 30 秒查一次所有監看中的股票，到價時跳出瀏覽器通知與提示音，每個價位每天只提醒一次。
 const ALERT_WORKER = "https://yaogu-quote.ghiting76914.workers.dev/";  // Cloudflare Worker（帳號 Ghiting76914）
-const alertState = { timer: null, targets: [], prices: {}, last: null, error: null };
+const alertState = { timer: null, targets: [], prices: {}, last: null, error: null, fails: 0 };
+
+// 瀏覽器的英文錯誤訊息（逾時、斷線、格式錯誤）改成中文，避免看起來像亂碼
+function alertErrorText(e) {
+  const m = String((e && (e.name + " " + e.message)) || "");
+  if (/Abort|aborted|timeout/i.test(m)) return "連線逾時";
+  if (/JSON|Unexpected token|SyntaxError/i.test(m)) return "資料格式異常";
+  if (/HTTP (\d+)/.test(m)) return `轉接站暫時無回應（${m.match(/HTTP (\d+)/)[1]}）`;
+  return "網路連線失敗";
+}
 
 function twNow() {
   const n = new Date();
@@ -1074,11 +1083,14 @@ async function alertTick() {
       const q = await alertFetch([...new Set(todo.map((t) => t.code))]);
       Object.assign(alertState.prices, q);
       alertState.error = null;
+      alertState.fails = 0;
       alertState.last = twNow().toTimeString().slice(0, 8);
       for (const t of todo) if (q[t.code] && t.hit(q[t.code])) alertFire(t, q[t.code]);
       if (state.view === "day") renderDay();
     } catch (e) {
-      alertState.error = e.message || "網路錯誤";
+      alertState.fails += 1;
+      // 偶爾失敗一次很常見（休眠醒來、網路切換），連續失敗才顯示
+      alertState.error = alertState.fails >= 2 ? alertErrorText(e) : null;
     }
   }
   alertRender();
