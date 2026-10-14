@@ -919,14 +919,14 @@ function renderDay() {
       <div class="banner-head"><h3>當沖觀察</h3><span class="sub">前一天鎖漲停的股票，看開盤決定方向</span></div>
       <div class="howto">
         <span><b class="n">1</b>開盤漲 ≥ ${g}% → 放空（開盤漲停不空）</span>
-        <span><b class="n">2</b>開盤跌 ≥ ${g}% → 做多</span>
+        <span><b class="n">2</b>開盤跌 ≥ ${g}% → 做多<span class="muted" style="font-size:12px">（最近轉弱，僅參考）</span></span>
         <span><b class="n">3</b>停損 ${sl}%，收盤前出場</span>
       </div>
       <div class="muted" style="font-size:12.5px;margin-top:8px">${today ? `今天（${twDay(twNow())}）要看的名單：${d.trade_date} 收盤鎖漲停、20 日均量 ≥ 1,000 張。` : `明天要看的名單：${d.trade_date} ${d.live && !d.live.final ? "盤中暫定（收盤後確認）" : "收盤"}鎖漲停、20 日均量 ≥ 1,000 張。`}開啟右上角「🔔 盤中提醒」，開盤跳空達條件時會跳出通知。</div>
       <details class="more"><summary>規則、風險與回測數據</summary>
       <dl class="plan" style="margin-top:4px">
         <dt>做空</dt><dd>開盤漲 ≥ ${g}%（但<b>開盤就漲停的不空</b>，可能整天買不回來）：<b>開盤價放空</b>，漲到開盤價 +${sl}% 停損買回，否則收盤前（13:25 前）買回。11 年回測 ${v(R.short)}</dd>
-        <dt>做多</dt><dd>開盤跌 ≥ ${g}%：<b>開盤價買進</b>，跌到開盤價 -${sl}% 停損，否則收盤前賣出。11 年回測 ${v(R.long)}，兩段期間差距大、較不穩定</dd>
+        <dt>做多</dt><dd>開盤跌 ≥ ${g}%：<b>開盤價買進</b>，跌到開盤價 -${sl}% 停損，否則收盤前賣出。11 年回測 ${v(R.long)}；${R.recent ? `<b>最近 6 個月轉弱（${pct(R.recent.long.avg)}%、勝率 ${R.recent.long.win}%），僅供參考</b>` : "兩段期間差距大、較不穩定"}</dd>
         <dt>不交易</dt><dd>開盤跳空不到 ${g}%</dd>
         <dt>風險</dt><dd><b>放空可能被軋</b>：這類股票約 ${R.squeeze}% 收盤被拉到漲停，漲停鎖死時停損單可能買不回來（要標借或違約交割，損失可能遠大於 ${sl}%）。
           現股當沖「先賣後買」需開通當沖資格或信用戶。整體而言，所有股票開盤買、收盤賣平均 ${R.long_all}%，當沖做多大多是虧的</dd>
@@ -1387,6 +1387,8 @@ function renderPerf() {
       `每筆平均 ${pct(T3.train ? T3.train.avg : null)}%～${pct(T3.test ? T3.test.avg : null)}%，勝率約 ${T3.test ? T3.test.win : "–"}～${T3.train ? T3.train.win : "–"}%（11 年、停損 -10%）`)}
     ${block("overnight", "⚡ 隔日沖", "12:30 名單當時的價格買進，隔天開盤賣出（已漲停排隊中的實際上可能買不到）。",
       `每筆平均 ${pct(O.train ? O.train.avg : null)}%～${pct(O.test ? O.test.avg : null)}%，勝率約 ${O.train ? O.train.win : "–"}～${O.test ? O.test.win : "–"}%（11 年）`)}
+    ${P.overnight_rec ? block("overnight_rec", "⭐ 隔日沖（只買推薦）", "同一份 12:30 名單中標 ⭐ 推薦的股票（2026-10-14 起記錄），推播價格買進、隔天開盤賣出。",
+      `最近 12 個月回測每筆平均 ${pct(O.rec_recent ? O.rec_recent.avg : null)}%、勝率約 ${O.rec_recent ? O.rec_recent.win : "–"}%；其他股票約 ${pct(O.rec_recent ? O.rec_recent.other : null)}%`) : ""}
     ${block("overnight_limit", "⚡ 隔日沖（掛 +2% 限價賣）", "同一份名單，隔天掛買進價 +2% 的限價單，盤中碰到就賣、沒碰到收盤賣。",
       `每筆平均 ${pct(O.exit_limit ? O.exit_limit.train.avg : null)}%～${pct(O.exit_limit ? O.exit_limit.test.avg : null)}%，勝率約 ${O.exit_limit ? O.exit_limit.train.win : "–"}～${O.exit_limit ? O.exit_limit.test.win : "–"}%（11 年）`)}
     ${P.daytrade ? block("daytrade", "⚡ 當沖觀察", "前一天鎖漲停的股票：開高 ≥3% 開盤放空（開盤漲停不空）、開低 ≤-3% 開盤做多，停損 5%，收盤出場；跳空不到 3% 不交易。已扣當沖成本 0.435%。",
@@ -1516,7 +1518,7 @@ function renderOvernight() {
     <div class="banner">
       <div class="banner-head"><h3>隔日沖</h3><span class="sub">收盤前買進、明天開盤賣出</span></div>
       <div class="howto">
-        <span><b class="n">1</b>優先買 ⭐推薦、還沒漲停的</span>
+        <span><b class="n">1</b>只買 ⭐推薦、還沒漲停的${R.rec_recent ? `<span class="muted" style="font-size:12px">（近 12 個月回測 ${pct(R.rec_recent.avg)}%，其他約 ${pct(R.rec_recent.other)}%）</span>` : ""}</span>
         <span><b class="n">2</b>明天開盤賣（或掛 +2% 限價）</span>
         <span><b class="n">3</b>已漲停的不要排隊追</span>
       </div>

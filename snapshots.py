@@ -32,7 +32,7 @@ def save(data):
     rev = data.get("revenue") or {}
     snap = {
         "trade_date": data["trade_date"], "mode": mode, "time": (live or {}).get("time"),
-        "overnight": _slim(data.get("overnight") or []),
+        "overnight": _slim(data.get("overnight") or [], extra=("推薦",)),
         "picks": [{**s, "進場區間": [p["計畫"]["levels"]["entry_low"], p["計畫"]["levels"]["entry_high"]]}
                   for s, p in zip(_slim(data.get("picks") or []), data.get("picks") or [])],
         "pre": [{**s, "突破價": p["計畫"]["levels"]["trigger"]}

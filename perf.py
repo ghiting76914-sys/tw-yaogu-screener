@@ -92,7 +92,7 @@ def compute(history):
         return {"日期": sig_date, "代號": code, "名稱": name, "進場": entry, "出場": bars[-1][1]["close"],
                 "報酬%": round(ret, 2), "狀態": "已出場" if closed else "持有中", "天數": len(bars)}
 
-    top3, overnight, overnight_limit, rev, daytrade = [], [], [], [], []
+    top3, overnight, overnight_limit, rev, daytrade, overnight_rec = [], [], [], [], [], []
     for s in _snaps():
         d = s["trade_date"]
         if d < dates[0]:
@@ -127,6 +127,8 @@ def compute(history):
                 overnight.append({"日期": d, "代號": p["代號"], "名稱": p["名稱"], "進場": p["價格"], "出場": sell,
                                   "報酬%": round((sell / p["價格"] - 1) * 100 - COST, 2) if sell and p["價格"] else None,
                                   "狀態": "已出場" if sell else "等待隔天開盤", "天數": 1 if sell else 0})
+                if p.get("推薦"):  # 2026-10-14 起存檔才有這個標記
+                    overnight_rec.append(dict(overnight[-1]))
                 # 另一種賣法：隔天掛 +2% 限價，沒成交收盤賣
                 lim = strategy.limit_sell_fill(p["價格"], b["open"], b["high"], b["close"]) \
                     if b and p["價格"] and b.get("high") is not None else None
@@ -140,7 +142,8 @@ def compute(history):
     except (OSError, ValueError):
         ledger = {}
     out = {}
-    for key, trades in (("top3", top3), ("overnight", overnight), ("overnight_limit", overnight_limit), ("revenue", rev), ("daytrade", daytrade)):
+    for key, trades in (("top3", top3), ("overnight", overnight), ("overnight_limit", overnight_limit), ("overnight_rec", overnight_rec),
+                        ("revenue", rev), ("daytrade", daytrade)):
         book = ledger.setdefault(key, {})
         tkey = lambda x: f"{x['日期']}|{x['代號']}|{x['名稱']}"  # noqa: E731
         seen = {tkey(x) for x in trades}

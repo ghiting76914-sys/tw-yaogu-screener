@@ -768,6 +768,8 @@ OVERNIGHT_RESEARCH = {
     # research/overnight_rank.py：推薦分數（起漲第 1 根 2 分、量比 < 2 一分、突破 60 日高一分）≥ 2 vs 其他
     "rec": {"train": {"win": 54.8, "avg": 0.81}, "test": {"win": 55.8, "avg": 0.98}},
     "not_rec": {"train": {"win": 48.4, "avg": -0.02}, "test": {"win": 48.8, "avg": -0.03}},
+    # 最近 12 個月（2025/10～2026/10，SINCE=20251001）：推薦 vs 其他
+    "rec_recent": {"avg": 1.21, "win": 57.9, "other": 0.06},
     # 已經漲停才看到、用漲停價排隊：收盤鎖住 +1.8～2.0%，被打開 -3.7～-3.9%（排得到的多半是後者）
     "queue_opened": -3.8,
 }
@@ -835,6 +837,8 @@ DAYTRADE_RESEARCH = {
     "short": {"train": {"avg": 0.58, "win": 47.7}, "test": {"avg": 0.56, "win": 47.4}, "squeeze": 32},
     "long": {"train": {"avg": 0.37, "win": 49.7}, "test": {"avg": 2.49, "win": 62.6}},
     "long_all": -0.69,   # 所有股票開盤買、收盤賣的平均（做多當沖整體是虧的）
+    # 最近 6 個月（2026/04 起）：做空 +0.64%、勝率 47.7%；做多轉弱 +0.55%、勝率 40.4%
+    "recent": {"short": {"avg": 0.64, "win": 47.7}, "long": {"avg": 0.55, "win": 40.4}},
 }
 
 

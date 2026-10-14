@@ -27,6 +27,8 @@ def main():
     days = L.trading_days()
     n = len(days)
     split = int(n * 0.75)
+    if os.environ.get("SINCE"):  # 例如 SINCE=20251001：驗證期改為這天之後（看最近的表現）
+        split = next(i for i, d in enumerate(days) if d >= os.environ["SINCE"])
     rev = R.load_revenue()
     window = deque(maxlen=61)
     positions = []
