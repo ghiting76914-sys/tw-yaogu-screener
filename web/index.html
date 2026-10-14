@@ -1345,7 +1345,17 @@ function alertStatePrice(code) {
 // ---------------------------------------------------------------- 資金設定與部位大小（只存在這台瀏覽器）
 function loadJSON(key, dflt) { try { return JSON.parse(localStorage.getItem(key)) ?? dflt; } catch (e) { return dflt; } }
 function saveJSON(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) { /* 無法儲存 */ } }
-function settings() { return { capital: 0, risk: 1, maxPos: 20, ...loadJSON("yg-settings", {}) }; }
+function settings() { return { capital: 0, risk: 1, maxPos: 20, feeDisc: 1, ...loadJSON("yg-settings", {}) }; }
+
+// 交易成本：手續費 0.1425% × 券商折扣（每筆最低 20 元），賣出證交稅 0.3%（當沖 0.15%）
+function tradeCost(buy, qty, price, dayTrade) {
+  const f = 0.001425 * settings().feeDisc, tax = dayTrade ? 0.0015 : 0.003;
+  const feeBuy = Math.max(20, buy * qty * f);
+  const net = price ? price * qty - Math.max(20, price * qty * f) - price * qty * tax - (buy * qty + feeBuy) : null;
+  let be = (buy * qty + feeBuy) / (qty * (1 - f - tax));      // 損益平衡價：賣在這個價格剛好不賺不賠
+  if (be * qty * f < 20) be = (buy * qty + feeBuy + 20) / (qty * (1 - tax));
+  return { net, be, pct: net == null ? null : net / (buy * qty + feeBuy) * 100 };
+}
 
 // 依停損距離算建議張數：停損時虧損 ≤ 總資金 × risk%，單檔金額 ≤ 總資金 × maxPos%
 function positionSize(price, stopPct) {
@@ -1378,8 +1388,11 @@ function editSettings() {
   if (risk === null) return;
   const maxPos = prompt("單一股票最多占總資金幾 %？（建議 10～25）", S.maxPos);
   if (maxPos === null) return;
+  const disc = prompt("券商手續費折扣（例如 6 折填 0.6、2.8 折填 0.28、沒有折扣填 1）", S.feeDisc);
+  if (disc === null) return;
   saveJSON("yg-settings", { capital: Math.max(0, parseFloat(cap) || 0), risk: Math.min(10, Math.max(0.1, parseFloat(risk) || 1)),
-                            maxPos: Math.min(100, Math.max(1, parseFloat(maxPos) || 20)) });
+                            maxPos: Math.min(100, Math.max(1, parseFloat(maxPos) || 20)),
+                            feeDisc: Math.min(1, Math.max(0.05, parseFloat(disc) || 1)) });
   if (liveStock) showStock(liveStock.code);
   renderHold();
 }
@@ -1445,8 +1458,9 @@ async function renderHold() {
     const q = holdPrices[h.code];
     const price = q ? q.price : x ? x.c : null;
     const qty = h.lots * 1000;
-    const pnl = price ? (price / h.price - 1) * 100 : null;
-    totCost += h.price * qty; totNow += (price || h.price) * qty;
+    const tc = tradeCost(h.price, qty, price, h.type === "day");
+    const pnl = tc.pct;
+    totCost += h.price * qty; totNow += h.price * qty + (tc.net || 0);
     const T = HOLD_TYPES[h.type] || HOLD_TYPES.swing;
     const adv = holdAdvice(h, price);
     const stop = T.stop ? h.price * (1 - T.stop / 100) : null;
@@ -1454,7 +1468,8 @@ async function renderHold() {
       <td class="l"><span class="name">${esc(h.name || (x && x.n) || h.code)}</span><span class="code num">${h.code}</span><div class="muted" style="font-size:11px">${T.name}・${h.date} 買</div></td>
       <td class="num">${fmt(h.price)}<div class="muted" style="font-size:11px">${h.lots} 張</div></td>
       <td class="num">${price ? fmt(price) : "–"}<div class="muted" style="font-size:11px">${q ? `即時 ${esc((q.time || "").slice(0, 5))}` : x ? "收盤" : ""}</div></td>
-      <td class="num ${pnl > 0 ? "up" : pnl < 0 ? "down" : ""}">${pnl == null ? "–" : pct(pnl) + "%"}<div style="font-size:11px">${price ? `${Math.round((price - h.price) * qty).toLocaleString()} 元` : ""}</div></td>
+      <td class="num ${pnl > 0 ? "up" : pnl < 0 ? "down" : ""}">${pnl == null ? "–" : pct(pnl) + "%"}<div style="font-size:11px">${tc.net != null ? `${Math.round(tc.net).toLocaleString()} 元` : ""}</div></td>
+      <td class="num">${fmt(tc.be)}<div class="muted" style="font-size:11px">${price ? (price >= tc.be ? "已過" : `差 ${pct((tc.be / price - 1) * 100)}%`) : ""}</div></td>
       <td class="num">${stop ? fmt(stop) : "–"}<div class="muted" style="font-size:11px">${tradingDaysSince(h.date)} 天</div></td>
       <td class="l" style="white-space:normal"><b class="${adv[0] === "bad" ? "down" : adv[0] === "good" ? "up" : ""}">${esc(adv[1])}</b></td>
       <td><button type="button" data-del="${i}" class="info-btn" title="刪除">✕</button></td></tr>`;
@@ -1466,12 +1481,12 @@ async function renderHold() {
       <div class="howto">
         <span><b class="n">1</b>搜尋股票 → 卡片上按「＋ 加入我的持股」，或用下面的表單新增</span>
         <span><b class="n">2</b>開啟 🔔 盤中提醒，跌破停損會通知</span>
-        <span><b class="n">3</b>${S.capital ? `總資金 ${S.capital.toLocaleString()} 元、每筆最多虧 ${S.risk}%、單檔上限 ${S.maxPos}%` : "尚未設定資金"}（<a href="#" data-act="settings">修改</a>）</span>
+        <span><b class="n">3</b>${S.capital ? `總資金 ${S.capital.toLocaleString()} 元、每筆最多虧 ${S.risk}%、單檔上限 ${S.maxPos}%、手續費 ${S.feeDisc} 折` : "尚未設定資金"}（<a href="#" data-act="settings">修改</a>）</span>
       </div>
       <form id="holdForm" class="hold-form">
         <input name="code" placeholder="代號" required list="holdCodes" autocomplete="off" style="width:90px">
         <datalist id="holdCodes">${searchData ? Object.entries(searchData.stocks).slice(0, 2500).map(([c, x]) => `<option value="${c}">${esc(x.n)}</option>`).join("") : ""}</datalist>
-        <input name="price" type="number" step="0.01" placeholder="買進價" required style="width:100px">
+        <input name="price" type="number" step="0.01" placeholder="成交價" required style="width:100px">
         <input name="lots" type="number" step="1" min="1" placeholder="張數" value="1" required style="width:70px">
         <input name="date" type="date" value="${twDay(twNow())}" required>
         <select name="type">${Object.entries(HOLD_TYPES).map(([k, t]) => `<option value="${k}">${t.name}</option>`).join("")}</select>
@@ -1481,9 +1496,9 @@ async function renderHold() {
     <div class="card" style="margin-top:12px">
       ${H.length ? `<div class="card-title">持股 ${H.length} 檔${tot != null ? `，合計 <span class="${tot > 0 ? "up" : tot < 0 ? "down" : ""}">${pct(tot)}%（${Math.round(totNow - totCost).toLocaleString()} 元）</span>` : ""}</div>
       <div class="table-wrap" style="max-height:none"><table>
-        <thead><tr><th class="l">股票</th><th>買進</th><th>現價</th><th>損益</th><th>停損／天數</th><th class="l">建議</th><th></th></tr></thead>
+        <thead><tr><th class="l">股票</th><th>買進（成交價）</th><th>現價</th><th>淨損益</th><th>損益平衡</th><th>停損／天數</th><th class="l">建議</th><th></th></tr></thead>
         <tbody>${rows}</tbody></table></div>
-      <div class="muted" style="font-size:12px;padding:8px 16px">持有天數以平日估算（未扣國定假日）。精選 3 檔：停損 -10%、持有 20 個交易日；營收動能：持有 20 個交易日；隔日沖：隔天開盤賣；當沖：當天平倉；自訂波段：停損 -10%，跌破月線提醒。</div>`
+      <div class="muted" style="font-size:12px;padding:8px 16px">「買進」請填實際成交價；停損價依成交價計算（與回測規則一致）。淨損益已扣買賣手續費（0.1425% × 折扣 ${settings().feeDisc}，每筆最低 20 元）與證交稅（0.3%，當沖 0.15%）；損益平衡＝賣在這個價格剛好不賺不賠。持有天數以平日估算（未扣國定假日）。精選 3 檔：停損 -10%、持有 20 個交易日；營收動能：持有 20 個交易日；隔日沖：隔天開盤賣；當沖：當天平倉；自訂波段：停損 -10%，跌破月線提醒。</div>`
       : `<div class="empty">還沒有持股。搜尋股票後按「＋ 加入我的持股」，或用上面的表單新增。</div>`}
     </div>`;
   $("holdForm").onsubmit = (e) => {
@@ -1516,7 +1531,7 @@ $("holdView").addEventListener("click", (e) => {
 // 搜尋卡片：加入我的持股
 function addHolding(code, price, type) {
   const x = searchData && searchData.stocks[code];
-  const p = prompt(`買進價（${x ? x.n : code}）`, price);
+  const p = prompt(`實際成交價（${x ? x.n : code}；不是損益平衡價）`, price);
   if (p === null) return;
   const lots = prompt("張數", "1");
   if (lots === null) return;
