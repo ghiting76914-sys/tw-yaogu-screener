@@ -44,6 +44,11 @@ def main():
     html = html.replace("<script>\nconst $", "<script>window.STATIC_SITE = true;</script>\n<script>\nconst $", 1)
     with open(os.path.join(SITE_DIR, "index.html"), "w", encoding="utf-8") as fh:
         fh.write(html)
+    # 手機通知（Service Worker）與「加入主畫面」需要的檔案
+    for name in ("sw.js", "manifest.webmanifest", "icon-192.png", "icon-512.png", "apple-touch-icon.png"):
+        src = os.path.join(server.WEB_DIR, name)
+        if os.path.exists(src):
+            shutil.copy(src, os.path.join(SITE_DIR, name))
     # 每日名單存檔的備份（實際績效需要，且無法重新產生）；快取被清掉時由 scripts/restore_snapshots.py 補回
     import snapshots
     archive = {}

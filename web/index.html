@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>妖股雷達</title>
+<meta name="description" content="台股隔日沖、當沖觀察、營收動能與精選 3 檔，每日自動更新的規則選股網站">
+<meta name="theme-color" content="#111110">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="妖股雷達">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
 :root {
   --bg: #f6f5f2;
@@ -292,9 +300,9 @@ svg.chart { width: 100%; height: auto; display: block; }
 .banner-head .sub { color: var(--muted); font-size: 13px; }
 /* 「怎麼做」：一行步驟，取代大段說明 */
 .howto { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; font-size: 13.5px; }
-.howto span { display: inline-flex; gap: 6px; align-items: baseline; }
-.howto b.n { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 6px;
-  background: var(--panel-2); color: var(--accent); font-size: 11px; flex: 0 0 auto; }
+.howto > span { display: inline-block; max-width: 100%; }
+.howto b.n { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 6px; margin-right: 6px;
+  vertical-align: 1px; background: var(--panel-2); color: var(--accent); font-size: 11px; }
 /* 規則與回測：預設收起 */
 details.more { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
 details.more > summary { cursor: pointer; font-size: 13px; color: var(--muted); list-style: none; display: inline-flex; gap: 6px; align-items: center; }
@@ -421,7 +429,17 @@ details.more[open] > summary { margin-bottom: 8px; }
 .pick-cols { display: grid; grid-template-columns: 1.3fr 1fr; gap: 0 22px; }
 @media (max-width: 760px) { .pick-cols, .bt { grid-template-columns: 1fr; } }
 footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 22px; }
-.layout > * { min-width: 0; }
+/* 手機：表格說明欄可換行、寬表格在框內滑動，不把整頁撐寬 */
+.sc-levels { table-layout: fixed; }
+.sc-levels td.h { white-space: normal; }
+.sc-grid > *, .picks > *, .picks { min-width: 0; }
+.picks { grid-template-columns: minmax(0, 1fr); }
+.prev-box { overflow-x: auto; }
+@media (max-width: 640px) {
+  .sc-levels td:first-child { width: 72px; }
+  .sc-levels td.v { width: 84px; }
+  .sc-checks li .r { font-size: 12px; }
+}
 .banner, .top3, .etf-card, .filter-note, .plan dd { overflow-wrap: anywhere; }
 .table-wrap { overflow-x: auto; }
 button { transition: background-color .15s, border-color .15s, color .15s; }
@@ -1455,12 +1473,22 @@ function alertToast(text) {
   setTimeout(() => el.remove(), 60000);
 }
 
+// 系統通知：手機（Android Chrome、iPhone 加入主畫面）只能透過 Service Worker 顯示，電腦可直接 new Notification
+let swReg = null;
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").then((r) => { swReg = r; }).catch(() => { /* 不支援就只用頁面提示 */ });
+}
+function showSystemNotice(title, body, tag) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const opts = { body, tag, icon: "icon-192.png", badge: "icon-192.png" };
+  if (swReg && swReg.showNotification) { swReg.showNotification(title, opts).catch(() => {}); return; }
+  try { new Notification(title, opts); } catch (e) { /* 部分手機瀏覽器不支援，改用頁面提示 */ }
+}
+
 function alertFire(t, q) {
   const title = `🔔 ${t.name} ${t.code} ${t.kind === "當沖" ? "開盤跳空" : "到價"}`;
   const body = t.msg ? t.msg(q) : `${t.kind}：${t.desc}，現價 ${fmt(q.price)}`;
-  try {
-    if ("Notification" in window && Notification.permission === "granted") new Notification(title, { body, tag: t.key });
-  } catch (e) { /* 部分手機瀏覽器不支援，改用頁面提示 */ }
+  showSystemNotice(title, body, t.key);
   alertToast(`${title}｜${body}`);
   alertBeep();
   alertMarkSeen(t.key);
@@ -1479,7 +1507,7 @@ function alertRender() {
     : !inMarketHours() ? `監看 ${ts.length} 個價位，盤中 9:00～13:30 才會檢查`
     : alertState.error ? `即時行情暫時讀取失敗（${esc(alertState.error)}），30 秒後重試`
     : `監看 ${ts.length} 個價位・${alertState.last ? `最後更新 ${alertState.last}` : "讀取中…"}・今天已提醒 ${ts.filter((t) => seen.has(t.key)).length} 個`;
-  const perm = !("Notification" in window) ? "（這個瀏覽器不支援系統通知，只會在頁面上提示；iPhone 請先「加入主畫面」再開啟）"
+  const perm = !("Notification" in window) ? "（這個瀏覽器不支援系統通知，只會在頁面上提示；iPhone 請用 Safari 的「分享 → 加入主畫面」，再從主畫面打開網站）"
     : Notification.permission === "denied" ? "（通知權限被封鎖，只會在頁面上提示；請到瀏覽器設定允許通知）" : "";
   bar.innerHTML = `<details><summary>🔔 <b>盤中到價提醒</b>：${status}${perm}</summary>
     <table>${ts.map((t) => {

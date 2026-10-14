@@ -288,7 +288,7 @@ def top3(history, rev):
     chosen = _top3_at(series, t, dates, rev)
     picks = []
     for rank, c in enumerate(chosen[:3], 1):
-        s, f, r = c["s"], c["f"], c["s"][t]
+        f, r = c["f"], c["s"][t]
         stop_est = strategy.tick_floor(r["close"] * (1 - TOP3_STOP))
         pct = r["change"] / (r["close"] - r["change"]) * 100 if r["change"] is not None and r["close"] > r["change"] else None
         picks.append({
