@@ -867,6 +867,54 @@ def daytrade_watch(history, ref=None):
     return out
 
 
+# ---------------------------------------------------------------- 股災反彈（research/near_limit.py）
+# 市場廣度 < 30%（流動股中站上月線的比例）時，近 5 日（含今天）仍跌 > 10% 的股票卻收漲停，
+# 而且同一天有 ≥ 10 檔這樣的股票（全市場恐慌後一起反彈）→ 隔天開盤買、持有 5 個交易日收盤賣
+PANIC = {"breadth": 0.30, "ret5": -0.10, "min_count": 10, "hold": 5}
+PANIC_RESEARCH = {
+    "period": "2015/04～2026/10",
+    "events": "2020/03、2021/05、2024/08、2025/04、2026/07～08 等 8 個事件日",
+    "train": {"days": 3, "avg": 11.15, "win": 93}, "test": {"days": 5, "avg": 10.53, "win": 94},
+    "few": "同一天只有 1～9 檔時，平均 -1.7%～-10.8%（不發訊號）",
+}
+
+
+def panic_rebound(history):
+    """今天是否出現股災反彈訊號；回傳 {active, count, breadth, list}。"""
+    series = build_series(history)
+    t = len(history) - 1
+    above = tot = 0
+    cands = []
+    for code, s in series.items():
+        r = s[t]
+        if not r or r["close"] is None or r["change"] is None or len(code) != 4 or code[0] == "0":
+            continue
+        past = [x for x in s[max(0, t - 19):t + 1] if x and x["close"] is not None]
+        vols = [x["volume"] or 0 for x in past]
+        if len(past) < 20 or sum(vols) / 20 < 500_000:
+            continue
+        tot += 1
+        above += r["close"] > sum(x["close"] for x in past) / 20
+        ref = r["close"] - r["change"]
+        if ref <= 0 or r["close"] < 10 or r["change"] / ref < 0.095:
+            continue
+        # 近 5 日（含今天）報酬：用每天的漲跌連乘，排除除權息的影響
+        ret5, ok = 1.0, True
+        for x in s[t - 4:t + 1]:
+            if not x or x["close"] is None or x["change"] is None or x["close"] - x["change"] <= 0:
+                ok = False
+                break
+            ret5 *= x["close"] / (x["close"] - x["change"])
+        if ok and ret5 - 1 < PANIC["ret5"]:
+            cands.append({"代號": code, "名稱": r["name"], "市場": r["market"], "收盤": r["close"],
+                          "漲跌%": round(r["change"] / ref * 100, 2), "近5日%": round((ret5 - 1) * 100, 1)})
+    breadth = above / tot if tot else None
+    active = breadth is not None and breadth < PANIC["breadth"] and len(cands) >= PANIC["min_count"]
+    cands.sort(key=lambda p: p["近5日%"])
+    return {"active": active, "count": len(cands), "breadth": round(breadth * 100, 1) if breadth is not None else None,
+            "list": cands if active else [], "rules": PANIC, "research": PANIC_RESEARCH}
+
+
 def daytrade_result(o, h, l, c, prev_close):
     """依開盤決定方向，回傳 (方向, 報酬%（已扣成本）)；開盤沒有跳空 3% 回傳 (None, None)。"""
     gap = (o / prev_close - 1) * 100

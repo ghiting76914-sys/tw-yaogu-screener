@@ -93,7 +93,7 @@ def compute(history, today_final=True):
         return {"日期": sig_date, "代號": code, "名稱": name, "進場": entry, "出場": bars[-1][1]["close"],
                 "報酬%": round(ret, 2), "狀態": "已出場" if closed else "持有中", "天數": len(bars)}
 
-    top3, overnight, overnight_limit, rev, daytrade, overnight_rec = [], [], [], [], [], []
+    top3, overnight, overnight_limit, rev, daytrade, overnight_rec, panic = [], [], [], [], [], [], []
     for s in _snaps():
         d = s["trade_date"]
         if d < dates[0]:
@@ -124,6 +124,10 @@ def compute(history, today_final=True):
                 if side:
                     daytrade.append({"日期": history[i + 1][0].isoformat(), "代號": p["代號"], "名稱": f"{p['名稱']}（{side}）",
                                      "進場": b["open"], "出場": b["close"], "報酬%": ret, "狀態": "已出場", "天數": 1})
+            for p in s.get("panic") or []:  # 股災反彈：隔天開盤買、持有 5 天
+                t = hold_trade(d, p["代號"], p["名稱"], strategy.PANIC["hold"])
+                if t:
+                    panic.append(t)
             for p in s.get("revenue") or []:
                 t = hold_trade(d, p["代號"], p["名稱"], 20)
                 if t:
@@ -156,7 +160,7 @@ def compute(history, today_final=True):
         ledger = {}
     out = {}
     for key, trades in (("top3", top3), ("overnight", overnight), ("overnight_limit", overnight_limit), ("overnight_rec", overnight_rec),
-                        ("revenue", rev), ("daytrade", daytrade)):
+                        ("revenue", rev), ("daytrade", daytrade), ("panic", panic)):
         book = ledger.setdefault(key, {})
         tkey = lambda x: f"{x['日期']}|{x['代號']}|{x['名稱']}"  # noqa: E731
         seen = {tkey(x) for x in trades}

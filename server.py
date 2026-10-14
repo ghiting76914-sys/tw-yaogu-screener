@@ -67,6 +67,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             trade_date.isoformat(), intraday, overnight,
             (res["live"] or {}).get("time", "")[:5] or dt.datetime.now().strftime("%H:%M"))
         daytrade = strategy.daytrade_watch(history, res["ref"])
+        panic = strategy.panic_rebound(history)
         # 明日強勢候選中，今天 12:30 隔日沖名單也有的股票（盤中執行時就用當下的名單）
         snap = snapshots._load(trade_date.isoformat(), "preview")
         on_codes = {p["代號"] for p in (snap or {}).get("overnight", [])} | (
@@ -105,6 +106,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             "overnight_new": [p for p in overnight_live if p["代號"] not in {x["代號"] for x in overnight}]
             if overnight_fixed and overnight_fixed["kind"] == "pushed" else [], "overnight_backtest": _backtests[bt_key][2],
             "daytrade": {"list": daytrade, "rules": strategy.DAYTRADE, "research": strategy.DAYTRADE_RESEARCH},
+            "panic": panic,
             "overnight_research": strategy.OVERNIGHT_RESEARCH, "previous": previous,
             "pivot_stats": _backtests[bt_key][3]}
     _last_ref["data"] = data

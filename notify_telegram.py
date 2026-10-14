@@ -152,6 +152,8 @@ def main():
         jobs.append((f"tg_sent_{date}", close_msg(data)))
         if N.revenue_due(data):
             jobs.append((f"tg_rev_{date}", (e(N.build_revenue_text(data)), button("看完整名單", "#rev"))))
+        if N.panic_due(data):
+            jobs.append((f"tg_panic_{date}", (e(N.build_panic_text(data)), button("看完整名單"))))
         if N.dip_due(data):
             jobs.append((f"tg_dip_{date}", (e(N.build_dip_text(data)), button("打開 ETF 專區", "#etf"))))
 

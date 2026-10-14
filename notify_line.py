@@ -515,6 +515,26 @@ def build_dip_text(data):
             + "\n".join(f"回檔 {x['level']}%：{x['price']:g}{' ✓' if x['hit'] else ''}" for x in d["prices"]))
 
 
+def panic_due(data):
+    """今天收盤出現股災反彈訊號（同一天 ≥ 10 檔大跌後漲停、市場廣度 < 30%）。"""
+    p = data.get("panic") or {}
+    return bool(p.get("active") and p.get("list"))
+
+
+def build_panic_text(data):
+    p, R = data["panic"], data["panic"]["research"]
+    names = "、".join(f"{x['名稱']}{x['代號']}" for x in p["list"][:15])
+    more = f" 等 {p['count']} 檔" if p["count"] > 15 else ""
+    return (f"🚨 股災反彈訊號｜{data['trade_date']}\n"
+            f"市場廣度只剩 {p['breadth']}%（流動股站上月線的比例），但今天有 {p['count']} 檔近 5 日大跌的股票收漲停，"
+            f"代表恐慌賣壓可能結束。\n\n"
+            f"【做法】明天開盤買進（建議分散多檔、平均分配），持有 {p['rules']['hold']} 個交易日收盤賣出。\n"
+            f"【名單】{names}{more}\n\n"
+            f"📊 11 年回測（{R['period']}）只出現 8 個事件日：平均 +{R['test']['avg']:.1f}%～+{R['train']['avg']:.1f}%、"
+            f"勝率 {R['train']['win']}%～{R['test']['win']}%，每次事件都賺錢。樣本很少，不保證下次，請控制資金。\n"
+            f"完整名單：{SITE_URL}")
+
+
 def revenue_due(data):
     """今天是營收動能換股日，且有名單。"""
     r = data.get("revenue")
@@ -623,15 +643,18 @@ def main():
     send_picks = not args.revenue_test and (args.force or not os.path.exists(marker))
     send_rev = rev_due and (args.force or args.revenue_test or not os.path.exists(rev_marker))
     dip_marker = os.path.join(CACHE_DIR, f"line_dip_sent_{data['trade_date'].replace('-', '')}")
+    panic_marker = os.path.join(CACHE_DIR, f"line_panic_sent_{data['trade_date'].replace('-', '')}")
+    send_panic = not preview and not args.revenue_test and panic_due(data) and (args.force or not os.path.exists(panic_marker))
     send_dip = not preview and not args.revenue_test and dip_due(data) and (args.force or not os.path.exists(dip_marker))
-    if not send_picks and not send_rev and not send_dip:
+    if not send_picks and not send_rev and not send_dip and not send_panic:
         print(f"{data['trade_date']} 已發送過，略過")
         return
 
     # 同一次推播最多 5 則訊息，只算 1 則額度；中午（盤中）推隔日沖，收盤後推明日強勢候選
     main_msg = build_overnight_flex(data) if preview else flex
     messages = ([main_msg] if send_picks else []) + ([build_revenue_flex(data)] if send_rev else []) \
-        + ([build_dip_flex(data)] if send_dip else [])
+        + ([build_dip_flex(data)] if send_dip else []) \
+        + ([{"type": "text", "text": build_panic_text(data)[:5000]}] if send_panic else [])
     err = push(token, user_id, messages)
     if err and err[0] == 400:
         # 卡片格式被拒絕時改傳純文字，確保一定收得到
@@ -642,7 +665,7 @@ def main():
             ] if top.get("picks") and not preview else []
         main_text = [build_overnight_text(data)] if preview else (top_text + texts)[:4]
         fallback = (main_text if send_picks else []) + ([build_revenue_text(data)] if send_rev else []) \
-            + ([build_dip_text(data)] if send_dip else [])
+            + ([build_dip_text(data)] if send_dip else []) + ([build_panic_text(data)] if send_panic else [])
         fallback = fallback[:4] + fallback[-1:] if len(fallback) > 5 else fallback  # 一次最多 5 則，保留最後的通知
         err = push(token, user_id, [{"type": "text", "text": t[:5000]} for t in fallback])
     if err:
@@ -659,6 +682,9 @@ def main():
         if not args.revenue_test:  # 測試發送不記錄，換股日當天仍會正式發送
             open(rev_marker, "w").close()
         print(f"已傳送 {data['revenue']['rebalance_date']} 營收動能名單（{len(data['revenue']['picks'])} 檔）到 LINE")
+    if send_panic:
+        open(panic_marker, "w").close()
+        print(f"已傳送股災反彈訊號（{data['panic']['count']} 檔）到 LINE")
     if send_dip:
         open(dip_marker, "w").close()
         print(f"已傳送 0050 回檔 {data['etf']['dip']['level']}% 通知到 LINE")
