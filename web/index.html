@@ -1215,7 +1215,7 @@ async function pollLive() {
       const zn = $("scZoneNow");
       if (zn && ls.zone) zn.innerHTML = ls.zone.lo != null && q.price < ls.zone.lo ? ' <b class="down">現價低於區間（轉弱，先不買）</b>'
         : q.price > ls.zone.hi ? ' <span class="muted">現價高於區間</span>' : ' <b class="up">✓ 現價在區間內</b>';
-      el.innerHTML = `<span class="num">${searchData.date.slice(5).replace("-", "/")} ${searchData.live ? searchData.live + " 盤中" : "收盤"} ${fmt(x.c)}（${x.p == null ? "–" : pct(x.p) + "%"}）</span>
+      el.innerHTML = `<span class="num">${ls.etf ? `昨收 ${fmt(q.prev || x.c)}` : `${searchData.date.slice(5).replace("-", "/")} ${searchData.live ? searchData.live + " 盤中" : "收盤"} ${fmt(x.c)}（${x.p == null ? "–" : pct(x.p) + "%"}）`}</span>
         ${q.high ? `<span class="num">今日 高 ${fmt(q.high)}　低 ${fmt(q.low)}</span>` : ""}
         <div style="margin-top:4px;font-size:12.5px">${today ? `${where}；距 R1 ${d(pv.R1)}、S1 ${d(pv.S1)}` : "點位是以最新收盤計算的下一個交易日參考"}${ls.swing ? `；距停損 ${d(x.c * 0.9)}` : ""}</div>`;
     }
@@ -1364,7 +1364,7 @@ async function showEtf(code) {
     $("etfBody").className = "";
     $("etfBody").innerHTML = `
       <div class="sc-verdict"><b class="lv" style="font-size:15px">ETF：不套用個股選股規則</b>
-        <div style="margin-top:4px;font-size:13px">${dd != null ? `距 ${n >= 250 ? "近一年" : "上市以來"}最高收盤 ${fmt(hi)}（${bars[hiIdx][0]}）回檔 <b class="num">${(-dd).toFixed(1)}%</b>；` : ""}
+        <div style="margin-top:4px;font-size:13px">${dd != null ? `距 ${n >= 200 ? "近一年" : "上市以來"}最高收盤 ${fmt(hi)}（${bars[hiIdx][0]}）回檔 <b class="num">${(-dd).toFixed(1)}%</b>；` : ""}
           ${lv.map(([k, v]) => `${k} ${fmt(v)}（${C[n - 1] >= v ? "站上" : "跌破"}）`).join("、")}。
           ${code === "0050" ? "0050 的回檔加碼訊號（13 年回測）請看 ETF 專區。" : "價格未含配息還原，配息後的跳空會讓回檔幅度看起來比較大。"}
           ${inEtfTab ? ` <a href="#etf" id="scGoEtf">打開 ETF 專區 →</a>` : ""}</div></div>
