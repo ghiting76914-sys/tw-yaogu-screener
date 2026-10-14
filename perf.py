@@ -18,9 +18,13 @@ MAX_TRADES = 200  # 網站只附最近 200 筆明細；統計仍用全部交易
 TOP3_CLOSE_FROM = "2026-10-13"  # 從這天起精選 3 檔改為當天收盤價買（13:40 推播、盤後定價）；之前照當時建議的隔天開盤買
 
 
+LEDGER = os.path.join(snapshots.SNAP_DIR, "perf_ledger.json")
+
+
 def _snaps():
+    """每日名單存檔（檔名 YYYY-MM-DD_mode.json；不含已出場帳本）。"""
     out = []
-    for f in sorted(glob.glob(os.path.join(snapshots.SNAP_DIR, "*.json"))):
+    for f in sorted(glob.glob(os.path.join(snapshots.SNAP_DIR, "20*_*.json"))):
         with open(f, encoding="utf-8") as fh:
             out.append(json.load(fh))
     return out
@@ -91,6 +95,8 @@ def compute(history):
     top3, overnight, overnight_limit, rev, daytrade = [], [], [], [], []
     for s in _snaps():
         d = s["trade_date"]
+        if d < dates[0]:
+            continue  # 比行情資料還舊的名單算不出來，結果來自已出場帳本
         if s["mode"] == "final":
             for p in s.get("top3") or []:
                 t = hold_trade(d, p["代號"], p["名稱"], 20, stop=0.10, at_close=d >= TOP3_CLOSE_FROM)
@@ -127,9 +133,27 @@ def compute(history):
                 overnight_limit.append({"日期": d, "代號": p["代號"], "名稱": p["名稱"], "進場": p["價格"], "出場": lim,
                                         "報酬%": round((lim / p["價格"] - 1) * 100 - COST, 2) if lim else None,
                                         "狀態": "已出場" if lim else "等待隔天", "天數": 1 if lim else 0})
+    # 已出場帳本：出場的交易結果永久記下；行情只保留約 2 年（LOOKBACK），更早的名單算不出來時改用帳本
+    try:
+        with open(LEDGER, encoding="utf-8") as fh:
+            ledger = json.load(fh)
+    except (OSError, ValueError):
+        ledger = {}
     out = {}
     for key, trades in (("top3", top3), ("overnight", overnight), ("overnight_limit", overnight_limit), ("revenue", rev), ("daytrade", daytrade)):
+        book = ledger.setdefault(key, {})
+        tkey = lambda x: f"{x['日期']}|{x['代號']}|{x['名稱']}"  # noqa: E731
+        seen = {tkey(x) for x in trades}
+        for x in trades:
+            if x["狀態"] == "已出場":
+                book[tkey(x)] = x
+        trades += [x for k, x in book.items() if k not in seen]
         trades.sort(key=lambda x: (x["日期"], x["代號"]), reverse=True)
         out[key] = {"summary": _summary(trades), "trades": trades[:MAX_TRADES]}
+    try:
+        with open(LEDGER, "w", encoding="utf-8") as fh:
+            json.dump(ledger, fh, ensure_ascii=False)
+    except OSError as e:
+        print(f"已出場帳本寫入失敗：{e}")
     out["since"] = min((s["trade_date"] for s in _snaps()), default=None)
     return out
