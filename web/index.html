@@ -1116,7 +1116,9 @@ async function pollLive() {
       $("scPx").className = `px num ${cls}`;
       $("scPct").innerHTML = `${pct(chg)}%`;
       $("scPct").className = `num ${cls}`;
-      $("scPxNote").innerHTML = `<span class="live ${inMarketHours() ? "pulse" : "done"}">即時 ${esc((q.time || "").slice(0, 5))}</span>${q.traded ? "" : " 這一刻無成交，顯示委買價"}`;
+      $("scPxNote").innerHTML = `<span class="live ${inMarketHours() ? "pulse" : "done"}">即時 ${esc((q.time || "").slice(0, 5))}</span>`
+        + (q.limit === "up" ? ' <span class="chip sm red">漲停</span>' : q.limit === "down" ? ' <span class="chip sm" style="color:var(--down)">跌停</span>' : "")
+        + (q.traded || q.limit ? "" : " 這一刻無成交，顯示委買價");
       const zn = $("scZoneNow");
       if (zn && ls.zone) zn.innerHTML = ls.zone.lo != null && q.price < ls.zone.lo ? ' <b class="down">現價低於區間（轉弱，先不買）</b>'
         : q.price > ls.zone.hi ? ' <span class="muted">現價高於區間</span>' : ' <b class="up">✓ 現價在區間內</b>';
@@ -1404,14 +1406,18 @@ async function alertFetchOnce(codes) {
   const out = {};
   for (const r of j.msgArray || []) {
     let p = parseFloat(r.z);
-    if (!(p > 0)) {  // 這一刻沒有成交：用最佳買價（沒有就用賣價）
-      const b = parseFloat((r.b || "").split("_")[0]), a = parseFloat((r.a || "").split("_")[0]);
+    if (!(p > 0)) {
+      // 這一刻沒有成交：用最佳買價（沒有就用賣價）。鎖漲停時委買第一檔是市價單、價格寫 0，要跳過；鎖跌停時委賣同理
+      const first = (str) => (str || "").split("_").map(parseFloat).find((v) => v > 0);
+      const b = first(r.b), a = first(r.a);
       p = b > 0 ? b : a > 0 ? a : NaN;
     }
+    const up = parseFloat(r.u), dn = parseFloat(r.w);
     const op = parseFloat(r.o);
     const num_ = (k) => { const v = parseFloat(r[k]); return v > 0 ? v : null; };
     if (p > 0) out[r.c] = { price: p, open: op > 0 ? op : null, time: r.t, prev: num_("y"), high: num_("h"), low: num_("l"),
-      vol: parseFloat(r.v) || null, traded: parseFloat(r.z) > 0 };
+      vol: parseFloat(r.v) || null, traded: parseFloat(r.z) > 0,
+      limit: up > 0 && p >= up - 1e-9 ? "up" : dn > 0 && p <= dn + 1e-9 ? "down" : null };
   }
   return out;
 }
@@ -1927,6 +1933,11 @@ function renderOvernight() {
         ${mainList.length ? "" : `<div class="empty">目前沒有符合條件的股票。</div>`}
       </div>
     </div>
+    ${lockList && (d.overnight_new || []).length ? `<div class="card" style="margin-top:12px">
+      <div class="card-title">🆕 12:30 後新符合<span class="muted">（${d.live ? esc(d.live.time.slice(0, 5)) : ""} 時符合；回測規則同樣成立，但未推播、不計入實際績效，13:40 收盤後會一起確認）</span></div>
+      <div class="table-wrap" style="max-height:none"><table>
+        <thead><tr><th>#</th><th class="l">股票</th><th>現價</th><th>漲幅</th><th class="col-opt">開盤</th><th>量比</th><th class="col-opt">漲停價</th><th>+2% 限價賣</th><th class="l">狀態</th></tr></thead>
+        <tbody>${rowHtml(d.overnight_new, false)}</tbody></table></div></div>` : ""}
 
     ${prevTable("overnight")}`;
 }

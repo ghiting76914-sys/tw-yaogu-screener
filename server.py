@@ -62,6 +62,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         rev = _revenue_summary(history)
         overnight = strategy.overnight_picks(history, res["ref"])
         intraday = bool(res["live"] and not res["live"]["final"])
+        overnight_live = overnight
         overnight, overnight_fixed = snapshots.fixed_overnight(
             trade_date.isoformat(), intraday, overnight,
             (res["live"] or {}).get("time", "")[:5] or dt.datetime.now().strftime("%H:%M"))
@@ -77,7 +78,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         details = {}
         top3_picks = ((rev or {}).get("top3") or {}).get("picks", [])
         pushed_on = (snap or {}).get("overnight", []) if snap else []
-        for p in picks + pre + overnight + daytrade + pushed_on + (rev["picks"] if rev else []) + top3_picks:
+        for p in picks + pre + overnight + overnight_live + daytrade + pushed_on + (rev["picks"] if rev else []) + top3_picks:
             code = p["代號"]
             if code not in known and code not in details:
                 row = yaogu.analyze(code, history, res["ref"], detail_args)
@@ -99,7 +100,10 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             "market": res["market"][-1], "insti_ready": res["insti"][-1] is not None,
             "insti_excluded": excluded, "details": details, "etf": _etf_summary(), "etfs": etf.others(),
             "pre_total": pre_total[0] if pre_total else len(pre), "revenue": rev,
-            "overnight": overnight, "overnight_fixed": overnight_fixed, "overnight_backtest": _backtests[bt_key][2],
+            "overnight": overnight, "overnight_fixed": overnight_fixed,
+            # 盤中：推播後才符合條件的股票（回測規則同樣成立，但未推播、不計入績效）
+            "overnight_new": [p for p in overnight_live if p["代號"] not in {x["代號"] for x in overnight}]
+            if overnight_fixed and overnight_fixed["kind"] == "pushed" else [], "overnight_backtest": _backtests[bt_key][2],
             "daytrade": {"list": daytrade, "rules": strategy.DAYTRADE, "research": strategy.DAYTRADE_RESEARCH},
             "overnight_research": strategy.OVERNIGHT_RESEARCH, "previous": previous,
             "pivot_stats": _backtests[bt_key][3]}
