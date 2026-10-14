@@ -154,6 +154,7 @@ tbody tr.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); 
   background: var(--panel-2); color: var(--text); white-space: nowrap;
 }
 .chip.red { background: var(--up-soft); color: var(--up); }
+.chip.dim { background: transparent; color: var(--muted); border: 1px solid var(--line); }
 .chip.amber { background: var(--warn-soft); color: var(--warn); }
 .chip.blue { background: var(--info-soft); color: var(--info); }
 .chip.sm { font-size: 11px; padding: 0 7px; margin: 0; }
@@ -231,10 +232,26 @@ svg.chart { width: 100%; height: auto; display: block; }
 .live.done { color: var(--muted); background: var(--panel-2); }
 @keyframes pulse { 50% { opacity: .25; } }
 .banner {
-  border: 1px solid var(--line); border-left: 4px solid var(--warn); background: var(--panel);
-  border-radius: 12px; padding: 14px 18px; margin-bottom: 14px; box-shadow: var(--shadow);
+  border: 1px solid var(--line); background: var(--panel);
+  border-radius: 14px; padding: 16px 20px; margin-bottom: 14px; box-shadow: var(--shadow);
 }
 .banner h3 { margin: 0 0 6px; font-size: 14px; }
+.banner-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.banner-head h3 { margin: 0; font-size: 17px; letter-spacing: .01em; }
+.banner-head .sub { color: var(--muted); font-size: 13px; }
+/* 「怎麼做」：一行步驟，取代大段說明 */
+.howto { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; font-size: 13.5px; }
+.howto span { display: inline-flex; gap: 6px; align-items: baseline; }
+.howto b.n { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 6px;
+  background: var(--panel-2); color: var(--accent); font-size: 11px; flex: 0 0 auto; }
+/* 規則與回測：預設收起 */
+details.more { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+details.more > summary { cursor: pointer; font-size: 13px; color: var(--muted); list-style: none; display: inline-flex; gap: 6px; align-items: center; }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary::before { content: "▸"; transition: transform .2s; display: inline-block; }
+details.more[open] > summary::before { transform: rotate(90deg); }
+details.more > summary:hover { color: var(--text); }
+details.more[open] > summary { margin-bottom: 8px; }
 .bt { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 10px 0; }
 .bt div { background: var(--panel-2); border-radius: 8px; padding: 8px 12px; }
 .bt .k { font-size: 12px; color: var(--muted); }
@@ -255,9 +272,9 @@ svg.chart { width: 100%; height: auto; display: block; }
 .streak.new { background: var(--info-soft); color: var(--info); }
 .streak.long { background: var(--warn-soft); color: var(--warn); }
 .paused-tag { font-size: 12px; font-weight: 700; color: var(--down); background: var(--down-soft); border-radius: 999px; padding: 1px 9px; }
-.filter-note { margin: 10px 0 0; padding: 8px 12px; border-radius: 8px; font-size: 13px; background: var(--panel-2); }
-.filter-note.ok { border-left: 3px solid var(--up); }
-.filter-note.bad { border-left: 3px solid var(--down); background: var(--down-soft); }
+.filter-note { margin: 10px 0 0; padding: 9px 12px; border-radius: 10px; font-size: 13px; background: var(--panel-2); }
+.filter-note.ok { background: var(--panel-2); }
+.filter-note.bad { background: var(--panel-2); color: var(--muted); }
 .etf-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
 .etf-head .p { font-size: 30px; font-weight: 700; }
 .etf-verdict { font-size: 18px; font-weight: 700; margin: 6px 0 4px; }
@@ -284,13 +301,14 @@ svg.chart { width: 100%; height: auto; display: block; }
 .pivots .v { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pivots .h { font-size: 11px; color: var(--muted); }
 .pivot-note { font-size: 11px; color: var(--muted); margin-top: 4px; }
-.top3 { margin-bottom: 16px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--up);
-  border-radius: 12px; padding: 14px 18px; box-shadow: var(--shadow); }
+.top3 { margin-bottom: 16px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; padding: 16px 20px; box-shadow: var(--shadow); }
 .top3-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .top3-head h2 { margin: 0; font-size: 17px; }
 .top3-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }
-.top3-card { background: var(--panel-2); border-radius: 10px; padding: 12px 14px; cursor: pointer; border: 1px solid transparent; }
-.top3-card:hover { border-color: var(--muted); }
+.top3-card { background: var(--panel-2); border-radius: 12px; padding: 12px 14px; cursor: pointer; border: 1px solid transparent;
+  transition: border-color .2s, transform .2s; }
+.top3-card:hover { border-color: var(--muted); transform: translateY(-1px); }
 .top3-card.sel { border-color: var(--accent); }
 .top3-card .px { font-size: 20px; font-weight: 700; }
 .top3-card ul { margin: 8px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); }
@@ -352,6 +370,13 @@ svg.chart { width: 100%; height: auto; display: block; }
 .pick-cols { display: grid; grid-template-columns: 1.3fr 1fr; gap: 0 22px; }
 @media (max-width: 760px) { .pick-cols, .bt { grid-template-columns: 1fr; } }
 footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 22px; }
+.layout > * { min-width: 0; }
+.banner, .top3, .etf-card, .filter-note, .plan dd { overflow-wrap: anywhere; }
+.table-wrap { overflow-x: auto; }
+button { transition: background-color .15s, border-color .15s, color .15s; }
+button:active { transform: translateY(1px); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+html { scroll-behavior: smooth; }
 
 @media (max-width: 1100px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
@@ -878,7 +903,7 @@ function renderDay() {
   const rows = D.list.map((p) => {
     const q = today ? alertState.prices[p["代號"]] : null;
     const gap = q && q.open ? (q.open / p["收盤"] - 1) * 100 : null;
-    const st = gap == null ? (today ? "等待開盤" : "明天開盤看")
+    const st = gap == null ? (!today ? "明天開盤看" : !inMarketHours() ? "等待開盤" : alertOn() ? "讀取開盤價中…" : '<span class="muted">開啟 🔔 盤中提醒後顯示</span>')
       : q.open >= p["明日漲停"] ? "開盤就漲停，<b>不要放空</b>（可能整天買不回來）"
       : gap >= g ? `<b class="down">做空</b>：開盤 ${fmt(q.open)}，停損 ${fmt(q.open * (1 + sl / 100))}`
       : gap <= -g ? `<b class="up">做多</b>：開盤 ${fmt(q.open)}，停損 ${fmt(q.open * (1 - sl / 100))}`
@@ -891,9 +916,15 @@ function renderDay() {
   const v = (x) => `${pct(x.train.avg)}%／${pct(x.test.avg)}%（勝率 ${x.train.win}%／${x.test.win}%）`;
   $("dayView").innerHTML = `
     <div class="banner">
-      <h3>當沖觀察：前一天鎖漲停的股票，看開盤決定方向</h3>
-      <div class="muted" style="font-size:13px">${today ? `今天（${twDay(twNow())}）要看的名單：${d.trade_date} 收盤鎖漲停、20 日均量 ≥ 1,000 張。` : `明天要看的名單：${d.trade_date} ${d.live && !d.live.final ? "盤中暫定（收盤後確認）" : "收盤"}鎖漲停、20 日均量 ≥ 1,000 張。`}開啟右上角「🔔 盤中提醒」，開盤跳空達條件時會跳出通知。</div>
-      <dl class="plan" style="margin-top:10px">
+      <div class="banner-head"><h3>當沖觀察</h3><span class="sub">前一天鎖漲停的股票，看開盤決定方向</span></div>
+      <div class="howto">
+        <span><b class="n">1</b>開盤漲 ≥ ${g}% → 放空（開盤漲停不空）</span>
+        <span><b class="n">2</b>開盤跌 ≥ ${g}% → 做多</span>
+        <span><b class="n">3</b>停損 ${sl}%，收盤前出場</span>
+      </div>
+      <div class="muted" style="font-size:12.5px;margin-top:8px">${today ? `今天（${twDay(twNow())}）要看的名單：${d.trade_date} 收盤鎖漲停、20 日均量 ≥ 1,000 張。` : `明天要看的名單：${d.trade_date} ${d.live && !d.live.final ? "盤中暫定（收盤後確認）" : "收盤"}鎖漲停、20 日均量 ≥ 1,000 張。`}開啟右上角「🔔 盤中提醒」，開盤跳空達條件時會跳出通知。</div>
+      <details class="more"><summary>規則、風險與回測數據</summary>
+      <dl class="plan" style="margin-top:4px">
         <dt>做空</dt><dd>開盤漲 ≥ ${g}%（但<b>開盤就漲停的不空</b>，可能整天買不回來）：<b>開盤價放空</b>，漲到開盤價 +${sl}% 停損買回，否則收盤前（13:25 前）買回。11 年回測 ${v(R.short)}</dd>
         <dt>做多</dt><dd>開盤跌 ≥ ${g}%：<b>開盤價買進</b>，跌到開盤價 -${sl}% 停損，否則收盤前賣出。11 年回測 ${v(R.long)}，兩段期間差距大、較不穩定</dd>
         <dt>不交易</dt><dd>開盤跳空不到 ${g}%</dd>
@@ -901,6 +932,7 @@ function renderDay() {
           現股當沖「先賣後買」需開通當沖資格或信用戶。整體而言，所有股票開盤買、收盤賣平均 ${R.long_all}%，當沖做多大多是虧的</dd>
       </dl>
       <p class="research">只有日 K 資料，回測以「開盤價進、收盤價出」計算，停損以當天最高／最低價是否碰到判斷（偏保守）；已扣手續費與當沖證交稅 ${D.rules.cost}%。非投資建議，請控制部位。</p>
+      </details>
     </div>
     <div class="card" style="margin-top:12px">
       <div class="table-wrap" style="max-height:none">
@@ -1405,11 +1437,16 @@ function renderTop3() {
   $("top3Panel").innerHTML = `
     <div class="top3-head">
       <h2>🎯 明日精選 3 檔</h2>
-      <span class="muted" style="font-size:12px">${T.date} ${intraday ? "盤中暫定，收盤後確認" : "收盤選出"}，共 ${T.qualified} 檔符合，依成交值取前 3</span>
+      <span class="muted" style="font-size:12px">${T.date} ${intraday ? "盤中暫定，收盤後確認" : "收盤選出"}</span>
     </div>
-    <div class="muted" style="font-size:13px;margin-top:4px">條件：營收創近 12 個月新高、年增 &gt; 20%、站上季線，<b>今天收盤突破 60 日新高</b>，日均量 1,000 張以上。<b>當天 14:00～14:30 用「盤後定價」買進（以收盤價成交），來不及就隔天開盤買；持有 ${T.hold} 個交易日（約一個月），盤中跌破進場價 -${T.stop || 10}% 就停損</b>。${R.close_buy ? `<span class="muted">（11 年回測：收盤價買平均 ${pct(R.close_buy.train.avg)}%／${pct(R.close_buy.test.avg)}%，隔天開盤買 ${pct(R.train.avg)}%／${pct(R.test.avg)}%）</span>` : ""}</div>
+    <div class="howto">
+      <span><b class="n">1</b>14:00～14:30 盤後定價買（來不及就隔天開盤）</span>
+      <span><b class="n">2</b>跌破進場價 -${T.stop || 10}% 停損</span>
+      <span><b class="n">3</b>持有 ${T.hold} 個交易日賣出</span>
+    </div>
     ${T.picks.length ? `<div class="top3-grid">${cards}</div>` : `<div class="empty" style="padding:20px">今天沒有符合條件的股票，寧可空手。</div>`}
-    <details class="top3-more" ${innerWidth > 640 ? "open" : ""}><summary>回測成績與前一交易日表現</summary>
+    <details class="more"><summary>選股條件、回測成績與前一交易日表現</summary>
+    <div class="top3-meta" style="margin-top:0">條件：營收創近 12 個月新高、年增 &gt; 20%、站上季線，<b>今天收盤突破 60 日新高</b>，日均量 1,000 張以上。<b>當天 14:00～14:30 用「盤後定價」買進（以收盤價成交），來不及就隔天開盤買；持有 ${T.hold} 個交易日（約一個月），盤中跌破進場價 -${T.stop || 10}% 就停損</b>。${R.close_buy ? `<span class="muted">（11 年回測：收盤價買平均 ${pct(R.close_buy.train.avg)}%／${pct(R.close_buy.test.avg)}%，隔天開盤買 ${pct(R.train.avg)}%／${pct(R.test.avg)}%）</span>` : ""}共 ${T.qualified} 檔符合，依成交值取前 3。</div>
     <div class="top3-meta">📊 11 年回測（${R.period}，每天 3 檔、持有 ${R.hold} 天、停損 -${R.stop}%、已扣成本）：訓練期平均 ${pct(R.train.avg)}%、驗證期 ${pct(R.test.avg)}%（站上季線的股票持有 20 天分別 ${pct(R.train.base)}%、${pct(R.test.base)}%）；個股勝率約 ${R.test.win}～${R.train.win}%，<b>超過一半會停損或小賠</b>，獲利來自賺的時候賺比較多；最差一筆 ${R.worst}%。${R.no_stop ? `不停損的話平均較高（${pct(R.no_stop.train)}%、${pct(R.no_stop.test)}%，${R.no_stop.years} 年都贏），但最差一筆曾到 ${R.no_stop.worst}%。` : ""}${h ? ` 網站 2 年回測：平均 ${pct(h.avg)}%、勝率 ${h.win}%（${h.trades} 筆；對照 ${b ? pct(b.avg) + "%" : "–"}）。` : ""}非投資建議。</div>
     ${prevLine ? `<div class="top3-meta">${prevLine}（還在持有中，未扣成本）</div>` : ""}
     </details>`;
@@ -1461,28 +1498,32 @@ function renderOvernight() {
   const dropped = pushed ? pushed.list.filter((p) => !nowCodes.has(p["代號"])) : [];
   const added = pushed ? d.overnight.filter((p) => !pushedCodes.has(p["代號"])) : [];
   const pushedNote = pushed && pushed.list.length && (dropped.length || added.length || !intraday)
-    ? `<p class="filter-note ok">📌 <b>今天 ${esc((pushed.time || "").slice(0, 5))} 推播的名單</b>（實際績效以這份、推播當時的價格計算）：${pushed.list.map((p) => `${esc(p["名稱"])} ${fmt(p["價格"])}`).join("、")}。
-        ${dropped.length ? `<br>已不在目前名單：${dropped.map((p) => esc(p["名稱"])).join("、")}（多半是漲停打開或漲幅縮小）。` : ""}
-        ${added.length ? `<br>推播後才加入：${added.map((p) => esc(p["名稱"])).join("、")}。` : ""}
-        下表中標「已推播」的為推播名單內的股票。</p>` : "";
+    ? `<p class="filter-note">📌 <b>${esc((pushed.time || "").slice(0, 5))} 推播的名單</b>：${pushed.list.map((p) => `${esc(p["名稱"])} ${fmt(p["價格"])}`).join("、")}
+        <span class="muted" style="display:block;font-size:12px;margin-top:2px">實際績效以這份計算${dropped.length ? `；已不在目前名單：${dropped.map((p) => esc(p["名稱"])).join("、")}` : ""}${added.length ? `；推播後才加入：${added.map((p) => esc(p["名稱"])).join("、")}` : ""}</span></p>` : "";
   const rows = d.overnight.map((p, i) => `
     <tr data-code="${p["代號"]}" class="${p["代號"] === state.selected ? "sel" : ""}">
       <td class="num">${i + 1}</td>
-      <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span>${p["推薦"] ? ' <span class="chip sm red" title="起漲第 1 根，或量比 < 2 且突破 60 日高">⭐ 推薦</span>' : ""}${pushed && pushedCodes.has(p["代號"]) ? ' <span class="chip sm blue">已推播</span>' : ""}${p["起漲第1根"] ? ' <span class="chip sm amber" title="前 20 天盤整後首度放量大漲">★ 起漲第1根</span>' : ""}</td>
+      <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span>${p["推薦"] ? ' <span class="chip sm red" title="起漲第 1 根，或量比 < 2 且突破 60 日高">⭐ 推薦</span>' : ""}${pushed && pushedCodes.has(p["代號"]) ? ' <span class="chip sm dim">已推播</span>' : ""}${p["起漲第1根"] ? ' <span class="chip sm dim" title="前 20 天盤整後首度放量大漲">起漲第1根</span>' : ""}</td>
       <td class="num">${fmt(p["現價"])}</td>
       <td class="num">${pct(p["漲跌%"])}%</td>
       <td class="num col-opt">${pct(p["開盤%"], 1)}%</td>
       <td class="num">${p["量比"] == null ? "–" : fmt(p["量比"])}</td>
       <td class="num col-opt">${fmt(p["漲停價"])}</td>
       <td class="num">${p["限價賣出"] == null ? "–" : fmt(p["限價賣出"])}</td>
-      <td class="l">${p["已漲停"] ? '<span class="chip sm amber">已漲停・排隊中</span>' : '<span class="chip sm blue">未漲停</span>'}</td>
+      <td class="l">${p["已漲停"] ? '<span class="chip sm dim">已漲停・排隊中</span>' : '<span class="chip sm">可買進</span>'}</td>
     </tr>`).join("");
   $("overnightView").innerHTML = `
     <div class="banner">
-      <h3>隔日沖：收盤前買進、明天開盤賣出</h3>
-      <div class="muted" style="font-size:13px">盤中漲到 +7% 以上（開盤時還沒到 +7%）、股價接近或突破 60 日高點、成交量 1,000 張以上，排除處置股；越接近漲停排越前面，最多 10 檔。</div>
+      <div class="banner-head"><h3>隔日沖</h3><span class="sub">收盤前買進、明天開盤賣出</span></div>
+      <div class="howto">
+        <span><b class="n">1</b>優先買 ⭐推薦、還沒漲停的</span>
+        <span><b class="n">2</b>明天開盤賣（或掛 +2% 限價）</span>
+        <span><b class="n">3</b>已漲停的不要排隊追</span>
+      </div>
       ${status}
       ${pushedNote}
+      <details class="more"><summary>選股條件、賣法、排序與回測數據</summary>
+      <div class="muted" style="font-size:13px">盤中漲到 +7% 以上（開盤時還沒到 +7%）、股價接近或突破 60 日高點、成交量 1,000 張以上，排除處置股，最多 10 檔。</div>
       <dl class="plan" style="margin-top:10px">
         <dt>進場</dt><dd>收盤前買進，不要追高於漲停價；已漲停的股票委買排隊中，可能買不到</dd>
         <dt>出場</dt><dd>兩種賣法擇一：<b>① 明天開盤直接賣</b>（11 年平均 ${pct(R.exit_open.train.avg)}%～${pct(R.exit_open.test.avg)}%、勝率約 ${R.exit_open.test.win}%，平均賺最多）；
@@ -1499,6 +1540,7 @@ function renderOvernight() {
       </div>` : ""}
       <p class="verdict">勝率約一半、每筆平均只賺 0.2～0.3%，優勢存在但不大；用手續費有折扣的券商會比較有利。</p>
       <p class="research">📚 11 年研究（${R.period}）：「漲到 +7% 就買、接近或突破 60 日高、隔天開盤賣」訓練期勝率 ${R.train.win}%、平均 ${pct(R.train.avg)}%，驗證期勝率 ${R.test.win}%、平均 ${pct(R.test.avg)}%。參考：${esc(R.locked)}。因為只有每日開高低收資料，無法驗證「中午 12 點時的狀態」，回測以「當天曾漲到 +7%」推估。</p>
+      </details>
     </div>
     <div class="card" style="margin-top:12px">
       <div class="table-wrap" style="max-height:none">
@@ -1539,9 +1581,10 @@ function renderRev() {
   const portAvg = port.length ? port.reduce((a, p) => a + p["報酬%"], 0) / port.length : null;
   $("revView").innerHTML = `
     <div class="banner">
-      <h3>這份名單怎麼來的</h3>
+      <div class="banner-head"><h3>營收動能</h3><span class="sub">每月換股一次，平均買 20 檔、持有約一個月</span></div>
+      <p class="filter-note">本期：<b>${r.rebalance_date}</b> 換股（使用 ${ym} 營收），${r.entry_date ? `${r.entry_date} 開盤進場，已持有 ${r.days_held}/${r.hold} 個交易日` : "明天開盤進場"}。共 ${r.qualified} 檔符合條件，依成交值取前 ${r.picks.length} 檔。${portAvg == null ? "" : `本期平均 <b class="num ${portAvg > 0 ? "up" : "down"}">${pct(portAvg)}%</b>。`}</p>
+      <details class="more"><summary>選股條件與回測數據</summary>
       <div class="muted" style="font-size:13px">每月 11 日營收公布後的第一個交易日收盤選股：<b>營收創近 12 個月新高、營收年增超過 20%、股價站上季線</b>，日均量 500 張以上，再依 20 日成交值取前 20 檔。隔天開盤平均分配資金買進，持有 20 個交易日（約一個月），到下次換股日再換。</div>
-      <p class="filter-note ok">本期：<b>${r.rebalance_date}</b> 換股（使用 ${ym} 營收），${r.entry_date ? `${r.entry_date} 開盤進場，已持有 ${r.days_held}/${r.hold} 個交易日` : "明天開盤進場"}。共 ${r.qualified} 檔符合條件，依成交值取前 ${r.picks.length} 檔。${portAvg == null ? "" : `本期平均 ${pct(portAvg)}%。`}</p>
       <div class="bt">
         <div><div class="k">11 年研究（${R.period}）</div><div class="v num">${R.beat}/${R.months}<small>個月贏過大盤</small></div></div>
         <div><div class="k">平均每月比大盤多</div><div class="v num">${pct(R.excess)}%<small>已扣成本</small></div></div>
@@ -1549,6 +1592,7 @@ function renderRev() {
       </div>
       <p class="verdict">每一年都贏過大盤，包括空頭年：${esc(R.bear)}。但<b>大跌的月份一樣會跌</b>（最差一個月 ${R.worst}%），請控制投入的資金比例。</p>
       ${b ? `<p>最近 2 年回測（網站資料，${b.months.length} 次換股）：${b.beat}/${b.months.length} 個月贏過大盤，平均每月 ${pct(b.avg)}%（大盤 ${pct(b.base_avg)}%），個股勝率 ${b.win}%，最差一個月 ${pct(b.worst)}%。已扣手續費與證交稅 ${b.cost}%、含除權息。</p>` : ""}
+      </details>
     </div>
     <div class="card" style="margin-top:12px">
       <div class="table-wrap" style="max-height:none">
