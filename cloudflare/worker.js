@@ -109,10 +109,15 @@ async function candles(url, env, ctx) {
   const key = new Request(`https://cache.local/candles/${symbol}/${day}`);
   const hit = await cache.match(key);
   if (hit) return new Response(hit.body, { headers: { ...Object.fromEntries(hit.headers), ...CORS } });
-  const from = new Date(Date.now() - 370 * 86400000).toISOString().slice(0, 10);
-  const r = await fetch(`https://api.fugle.tw/marketdata/v1.0/stock/historical/candles/${symbol}?from=${from}&to=${day}&fields=open,high,low,close,volume`,
+  // 富果日線一次最多查一年：先查 360 天；被拒絕時改查 180 天、不指定欄位再試一次
+  const span = (d) => new Date(Date.now() + 8 * 3600000 - d * 86400000).toISOString().slice(0, 10);
+  let r = await fetch(`https://api.fugle.tw/marketdata/v1.0/stock/historical/candles/${symbol}?from=${span(360)}&to=${day}&fields=open,high,low,close,volume`,
     { headers: { "X-API-KEY": env.FUGLE_KEY } });
-  if (!r.ok) return json({ error: r.status === 429 ? "富果查詢太頻繁（每分鐘 60 次）" : `富果 HTTP ${r.status}` }, 502);
+  if (r.status === 400) {
+    r = await fetch(`https://api.fugle.tw/marketdata/v1.0/stock/historical/candles/${symbol}?from=${span(180)}&to=${day}`,
+      { headers: { "X-API-KEY": env.FUGLE_KEY } });
+  }
+  if (!r.ok) return json({ error: r.status === 429 ? "富果查詢太頻繁（每分鐘 60 次）" : `富果 HTTP ${r.status}`, detail: (await r.text()).slice(0, 200) }, 502);
   const raw = await r.json();
   const data = (raw.data || []).map((c) => [c.date, c.open, c.high, c.low, c.close, c.volume]).sort((a, b) => (a[0] < b[0] ? -1 : 1));
   const res = new Response(JSON.stringify({ symbol, name: raw.name || null, data }), {
