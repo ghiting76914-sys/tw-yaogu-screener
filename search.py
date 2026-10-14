@@ -68,4 +68,6 @@ def build(history, ref, data):
             "spark": [_r(x, 2) for x in closes[-20:]],
             "quiet": quiet,  # 前 20 天盤整（波動 ≤ 15%、沒有大漲）：盤中判斷「起漲第 1 根」用
         }
-    return {"date": day.isoformat(), "stocks": out}
+    live = data.get("live")
+    # 盤中預覽產生的資料：價格是盤中即時價，不是收盤價
+    return {"date": day.isoformat(), "live": live["time"][:5] if live and not live.get("final") else None, "stocks": out}

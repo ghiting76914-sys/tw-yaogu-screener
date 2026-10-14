@@ -1011,6 +1011,10 @@ function sparkSvg(xs) {
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" aria-label="近 20 日走勢"><polyline fill="none" stroke="${col}" stroke-width="1.8" points="${pts}"/></svg>`;
 }
 
+function searchAsOf() {
+  return searchData.live ? `${searchData.date} ${searchData.live} 盤中` : `${searchData.date} 收盤`;
+}
+
 function showStock(code) {
   const x = searchData && searchData.stocks[code];
   const el = $("searchCard");
@@ -1035,7 +1039,7 @@ function showStock(code) {
       <h2>${esc(x.n)} <span class="code num">${code}</span><span class="mkt">${x.m}</span></h2>
       <span id="scPx" class="px num ${x.p > 0 ? "up" : x.p < 0 ? "down" : ""}">${fmt(x.c)}</span>
       <span id="scPct" class="num ${x.p > 0 ? "up" : x.p < 0 ? "down" : ""}">${x.p == null ? "" : pct(x.p) + "%"}</span>
-      <span id="scPxNote" class="muted" style="font-size:12px">${searchData.date} 收盤（讀取即時價…）</span>
+      <span id="scPxNote" class="muted" style="font-size:12px">${searchAsOf()}（讀取即時價…）</span>
       <button class="sc-close" type="button" aria-label="關閉" id="scClose">×</button>
     </div>
     <div id="scLive" class="sc-live muted"></div>
@@ -1094,11 +1098,11 @@ async function pollLive() {
   clearTimeout(liveTimer);
   const ls = liveStock, el = $("scLive");
   if (!ls || !el || $("searchCard").hidden) return;
-  if (STATIC && !ALERT_WORKER) { $("scPxNote").textContent = `${searchData.date} 收盤`; return; }
+  if (STATIC && !ALERT_WORKER) { $("scPxNote").textContent = searchAsOf(); return; }
   try {
     const q = (await alertFetch([ls.code]))[ls.code];
     if (liveStock !== ls) return;
-    if (!q) { $("scPxNote").textContent = `${searchData.date} 收盤（即時價暫時讀不到，可能暫停交易）`; }
+    if (!q) { $("scPxNote").textContent = `${searchAsOf()}（即時價暫時讀不到，可能暫停交易）`; }
     else {
       const x = ls.x, base = q.prev || x.c, chg = (q.price / base - 1) * 100;
       const cls = chg > 0 ? "up" : chg < 0 ? "down" : "";
@@ -1108,6 +1112,7 @@ async function pollLive() {
         : q.price > pv.S2 ? "在 S2～S1 之間" : "已跌破支撐 S2";
       const today = q.prev && Math.abs(q.prev - x.c) < 1e-6;  // 即時資料的昨收 = 搜尋資料的收盤 → 點位就是今天的參考
       $("scPx").textContent = fmt(q.price);
+      $("scPx").dataset.live = "1";
       $("scPx").className = `px num ${cls}`;
       $("scPct").innerHTML = `${pct(chg)}%`;
       $("scPct").className = `num ${cls}`;
@@ -1115,13 +1120,19 @@ async function pollLive() {
       const zn = $("scZoneNow");
       if (zn && ls.zone) zn.innerHTML = ls.zone.lo != null && q.price < ls.zone.lo ? ' <b class="down">現價低於區間（轉弱，先不買）</b>'
         : q.price > ls.zone.hi ? ' <span class="muted">現價高於區間</span>' : ' <b class="up">✓ 現價在區間內</b>';
-      el.innerHTML = `<span class="num">${searchData.date.slice(5).replace("-", "/")} 收盤 ${fmt(x.c)}（${x.p == null ? "–" : pct(x.p) + "%"}）</span>
+      el.innerHTML = `<span class="num">${searchData.date.slice(5).replace("-", "/")} ${searchData.live ? searchData.live + " 盤中" : "收盤"} ${fmt(x.c)}（${x.p == null ? "–" : pct(x.p) + "%"}）</span>
         ${q.high ? `<span class="num">今日 高 ${fmt(q.high)}　低 ${fmt(q.low)}</span>` : ""}
         <div style="margin-top:4px;font-size:12.5px">${today ? `${where}；距 R1 ${d(pv.R1)}、S1 ${d(pv.S1)}` : "點位是以最新收盤計算的下一個交易日參考"}${ls.swing ? `；距停損 ${d(x.c * 0.9)}` : ""}</div>`;
     }
   } catch (e) {
-    $("scPxNote").textContent = `${searchData.date} 收盤（即時價讀取失敗：${alertErrorText(e)}，稍後重試）`;
+    // 證交所偶爾短暫沒回應：5 秒後重試，連續 3 次失敗才顯示原因
+    ls.fails = (ls.fails || 0) + 1;
+    if (!$("scPx").dataset.live) $("scPxNote").textContent = ls.fails < 3 ? `${searchAsOf()}（即時價重試中…）`
+      : `${searchAsOf()}（即時價暫時讀不到：${alertErrorText(e)}，稍後自動重試）`;
+    liveTimer = setTimeout(pollLive, ls.fails < 3 ? 5000 : 20000);
+    return;
   }
+  ls.fails = 0;
   if (inMarketHours()) liveTimer = setTimeout(pollLive, 20000);
 }
 
