@@ -1015,9 +1015,13 @@ function searchMatches(q) {
   if (!S || !q) return [];
   q = q.trim().toUpperCase();
   const out = [];
+  const E = searchData.etfs || {};
   for (const [code, x] of Object.entries(S)) {
     if (code.startsWith(q) || x.n.toUpperCase().includes(q)) out.push([code, x]);
     if (out.length > 200) break;
+  }
+  for (const [code, x] of Object.entries(E)) {
+    if (code.startsWith(q) || x.n.toUpperCase().includes(q)) out.push([code, { ...x, etf: true, tags: [], v20: x.v }]);
   }
   out.sort((a, b) => (b[0] === q) - (a[0] === q) || (b[0].startsWith(q)) - (a[0].startsWith(q)) || b[1].v20 - a[1].v20);
   return out.slice(0, 8);
@@ -1314,6 +1318,84 @@ function alertStatePrice(code) {
   return v > 0 ? v : null;
 }
 
+// ETF 健檢卡片：個股選股規則不適用 ETF，改看績效、距高點回檔、均線與樞紐點；日線由轉接站 /candles（富果）取得
+async function showEtf(code) {
+  const e = (searchData.etfs || {})[code];
+  const el = $("searchCard");
+  if (!e) return;
+  clearTimeout(liveTimer); clearTimeout(bigState.timer);
+  el.hidden = false;
+  el.innerHTML = `<div class="sc-head"><h2>${esc(e.n)} <span class="code num">${code}</span><span class="mkt">${e.m}・ETF</span></h2>
+    <span id="scPx" class="px num ${e.p > 0 ? "up" : e.p < 0 ? "down" : ""}">${fmt(e.c)}</span>
+    <span id="scPct" class="num">${e.p == null ? "" : pct(e.p) + "%"}</span>
+    <span id="scPxNote" class="muted" style="font-size:12px">最近收盤（讀取即時價…）</span>
+    <button class="sc-close" type="button" aria-label="關閉" id="scClose">×</button></div>
+    <div id="scLive" class="sc-live muted"></div>
+    <div id="etfBody" class="muted" style="margin-top:12px">讀取近一年走勢…</div>`;
+  $("scClose").onclick = () => { el.hidden = true; clearTimeout(liveTimer); };
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+  let bars = [];
+  try {
+    const r = await fetch(`${ALERT_WORKER}candles?symbol=${code}`, { cache: "no-store" });
+    const j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
+    bars = j.data || [];
+  } catch (err) {
+    $("etfBody").textContent = `近一年走勢讀取失敗（${alertErrorText(err)}），只顯示即時價。`;
+  }
+  const C = bars.map((b) => b[4]);
+  const n = C.length, last = n ? bars[n - 1] : null;
+  const ma = (k) => n >= k ? C.slice(-k).reduce((a, b) => a + b, 0) / k : null;
+  const ago = (k) => n > k ? (C[n - 1] / C[n - 1 - k] - 1) * 100 : null;
+  const yStart = bars.findIndex((b) => b[0].slice(0, 4) === (last ? last[0].slice(0, 4) : ""));
+  const ytd = yStart > 0 ? (C[n - 1] / C[yStart - 1] - 1) * 100 : null;
+  const hiIdx = n ? C.slice(-250).reduce((bi, v, i, a) => (v > a[bi] ? i : bi), 0) + Math.max(0, n - 250) : -1;
+  const hi = hiIdx >= 0 ? C[hiIdx] : null, dd = hi ? (C[n - 1] / hi - 1) * 100 : null;
+  const pv = last ? (() => { const P = (last[2] + last[3] + last[4]) / 3, R = last[2] - last[3];
+    return { R2: P + R, R1: 2 * P - last[3], S1: 2 * P - last[2], S2: P - R }; })() : {};
+  const x = { c: last ? last[4] : e.c, p: e.p, pv };
+  liveStock = { code, x, swing: false, zone: null, etf: true };
+  pollLive();
+  if (!n) { $("etfBody").innerHTML += `<div style="margin-top:10px"><button type="button" class="info-btn" id="scAddHold">＋ 加入我的持股</button></div>`; }
+  else {
+    const perf = [["近 1 週", ago(5)], ["近 1 個月", ago(21)], ["近 3 個月", ago(63)], ["近 6 個月", ago(126)], ["今年以來", ytd], ["近 1 年", ago(Math.min(250, n - 1))]];
+    const lv = [["月線", ma(20)], ["季線", ma(60)], ["半年線", ma(120)]].filter(([, v]) => v);
+    const inEtfTab = ["0050", ...((state.data && state.data.etfs) || []).map((y) => y.code)].includes(code);
+    $("etfBody").className = "";
+    $("etfBody").innerHTML = `
+      <div class="sc-verdict"><b class="lv" style="font-size:15px">ETF：不套用個股選股規則</b>
+        <div style="margin-top:4px;font-size:13px">${dd != null ? `距 ${n >= 250 ? "近一年" : "上市以來"}最高收盤 ${fmt(hi)}（${bars[hiIdx][0]}）回檔 <b class="num">${(-dd).toFixed(1)}%</b>；` : ""}
+          ${lv.map(([k, v]) => `${k} ${fmt(v)}（${C[n - 1] >= v ? "站上" : "跌破"}）`).join("、")}。
+          ${code === "0050" ? "0050 的回檔加碼訊號（13 年回測）請看 ETF 專區。" : "價格未含配息還原，配息後的跳空會讓回檔幅度看起來比較大。"}
+          ${inEtfTab ? ` <a href="#etf" id="scGoEtf">打開 ETF 專區 →</a>` : ""}</div></div>
+      <div class="perf-grid num" style="grid-template-columns:repeat(6,minmax(0,1fr))">${perf.map(([k, v]) => `<div><div class="k">${k}</div>
+        <div class="v ${v > 0 ? "up" : v < 0 ? "down" : ""}">${v == null ? "–" : (v > 0 ? "+" : "") + v.toFixed(2) + "%"}</div></div>`).join("")}</div>
+      <div class="sc-grid">
+        <div><h4>距高點回檔的價位</h4>
+          <table class="sc-levels num">${[5, 10, 15, 20].map((k) => { const pxv = hi * (1 - k / 100);
+            return `<tr><td>回檔 ${k}%</td><td class="v ${C[n - 1] <= pxv ? "down" : ""}">${fmt(pxv)}</td><td class="h">${C[n - 1] <= pxv ? "✓ 已到" : `距現價 ${pct((pxv / C[n - 1] - 1) * 100, 1)}%`}</td></tr>`; }).join("")}</table>
+          <h4 style="margin-top:12px">近 60 日走勢</h4>${sparkSvg(C.slice(-60))}</div>
+        <div><h4>明日短線參考（樞紐點，以 ${last[0]} 日 K 計算）</h4>
+          <table class="sc-levels num">
+            <tr><td>壓力 R2</td><td class="v up">${fmt(pv.R2)}</td><td class="h"></td></tr>
+            <tr><td>壓力 R1</td><td class="v up">${fmt(pv.R1)}</td><td class="h"></td></tr>
+            <tr><td>支撐 S1</td><td class="v down">${fmt(pv.S1)}</td><td class="h"></td></tr>
+            <tr><td>支撐 S2</td><td class="v down">${fmt(pv.S2)}</td><td class="h"></td></tr>
+          </table></div>
+      </div>
+      <div style="margin-top:12px;font-size:13px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+        <button type="button" class="info-btn" id="scAddHold">＋ 加入我的持股</button>
+        <a href="https://tw.stock.yahoo.com/quote/${code}" target="_blank" rel="noopener">Yahoo 股市 ↗</a>
+        <span class="muted">日線來自富果（近一年、未還原配息），非投資建議。</span></div>`;
+    const go = $("scGoEtf");
+    if (go) go.onclick = (ev) => { ev.preventDefault(); state.etfCode = code; setView("etf"); renderEtf(); renderEtfDetail(); };
+  }
+  $("scAddHold").onclick = () => {
+    const live = parseFloat(($("scPx").textContent || "").replace(/,/g, ""));
+    addHolding(code, live > 0 ? live : x.c, "long");
+  };
+}
+
 (function setupSearch() {
   const inp = $("stockSearch"), box = $("searchSuggest");
   let items = [], idx = 0;
@@ -1321,9 +1403,9 @@ function alertStatePrice(code) {
     box.hidden = !items.length;
     box.innerHTML = items.map(([code, x], i) => `<button type="button" data-code="${code}" class="${i === idx ? "on" : ""}">
       <b>${esc(x.n)}</b><span class="code num">${code}</span><span class="num ${x.p > 0 ? "up" : x.p < 0 ? "down" : ""}">${fmt(x.c)}</span>
-      ${x.tags.length ? `<span class="tag">${TAG_NAMES[x.tags[0]]}</span>` : ""}</button>`).join("");
+      ${x.etf ? '<span class="tag">ETF</span>' : x.tags.length ? `<span class="tag">${TAG_NAMES[x.tags[0]]}</span>` : ""}</button>`).join("");
   };
-  const pick = (code) => { box.hidden = true; inp.value = ""; inp.blur(); showStock(code); };
+  const pick = (code) => { box.hidden = true; inp.value = ""; inp.blur(); (searchData.stocks[code] ? showStock : showEtf)(code); };
   inp.addEventListener("focus", () => loadSearch());
   inp.addEventListener("input", async () => {
     await loadSearch();
@@ -1466,7 +1548,7 @@ async function renderHold() {
   const S = settings();
   let totCost = 0, totNow = 0;
   const rows = H.map((h, i) => {
-    const x = searchData && searchData.stocks[h.code];
+    const x = searchData && (searchData.stocks[h.code] || (searchData.etfs || {})[h.code]);
     const q = holdPrices[h.code];
     const price = q ? q.price : x ? x.c : null;
     const qty = h.shares;
@@ -1497,7 +1579,7 @@ async function renderHold() {
       </div>
       <form id="holdForm" class="hold-form">
         <input name="code" placeholder="代號" required list="holdCodes" autocomplete="off" style="width:90px">
-        <datalist id="holdCodes">${searchData ? Object.entries(searchData.stocks).slice(0, 2500).map(([c, x]) => `<option value="${c}">${esc(x.n)}</option>`).join("") : ""}</datalist>
+        <datalist id="holdCodes">${searchData ? [...Object.entries(searchData.stocks), ...Object.entries(searchData.etfs || {})].map(([c, x]) => `<option value="${c}">${esc(x.n)}</option>`).join("") : ""}</datalist>
         <input name="price" type="number" step="0.01" placeholder="成交價" required style="width:100px">
         <input name="shares" type="number" step="1" min="1" placeholder="股數" value="1000" required style="width:100px" title="股數（1 張 = 1000 股）">
         <input name="date" type="date" value="${twDay(twNow())}" required>
@@ -1517,7 +1599,7 @@ async function renderHold() {
   $("holdForm").onsubmit = (e) => {
     e.preventDefault();
     const f = new FormData(e.target), code = String(f.get("code")).trim().toUpperCase();
-    const x = searchData && searchData.stocks[code];
+    const x = searchData && (searchData.stocks[code] || (searchData.etfs || {})[code]);
     const list = holdings();
     list.push({ code, name: x ? x.n : "", price: parseFloat(f.get("price")), shares: parseInt(f.get("shares"), 10) || 1,
                 date: String(f.get("date")), type: String(f.get("type")) });
@@ -1538,12 +1620,12 @@ async function renderHold() {
 }
 $("holdView").addEventListener("click", (e) => {
   const tr = e.target.closest("tr[data-code]");
-  if (tr && !e.target.closest("button")) loadSearch().then(() => showStock(tr.dataset.code));
+  if (tr && !e.target.closest("button")) loadSearch().then(() => (searchData.stocks[tr.dataset.code] ? showStock : showEtf)(tr.dataset.code));
 });
 
 // 搜尋卡片：加入我的持股
 function addHolding(code, price, type) {
-  const x = searchData && searchData.stocks[code];
+  const x = searchData && (searchData.stocks[code] || (searchData.etfs || {})[code]);
   const p = prompt(`實際成交價（${x ? x.n : code}；不是損益平衡價）`, price);
   if (p === null) return;
   const z = positionSize(parseFloat(p), 10);

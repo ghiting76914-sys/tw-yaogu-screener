@@ -99,6 +99,29 @@ async function getTrades(symbol, env, ctx) {
   return out;
 }
 
+// 日線（ETF 搜尋卡片用）：富果歷史 K 線，最近一年，快取 6 小時
+async function candles(url, env, ctx) {
+  const symbol = url.searchParams.get("symbol") || "";
+  if (!/^[0-9A-Z]{4,6}$/.test(symbol)) return json({ error: "bad symbol" }, 400);
+  if (!env.FUGLE_KEY) return json({ error: "尚未設定 FUGLE_KEY" }, 500);
+  const cache = caches.default;
+  const day = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+  const key = new Request(`https://cache.local/candles/${symbol}/${day}`);
+  const hit = await cache.match(key);
+  if (hit) return new Response(hit.body, { headers: { ...Object.fromEntries(hit.headers), ...CORS } });
+  const from = new Date(Date.now() - 370 * 86400000).toISOString().slice(0, 10);
+  const r = await fetch(`https://api.fugle.tw/marketdata/v1.0/stock/historical/candles/${symbol}?from=${from}&to=${day}&fields=open,high,low,close,volume`,
+    { headers: { "X-API-KEY": env.FUGLE_KEY } });
+  if (!r.ok) return json({ error: r.status === 429 ? "富果查詢太頻繁（每分鐘 60 次）" : `富果 HTTP ${r.status}` }, 502);
+  const raw = await r.json();
+  const data = (raw.data || []).map((c) => [c.date, c.open, c.high, c.low, c.close, c.volume]).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  const res = new Response(JSON.stringify({ symbol, name: raw.name || null, data }), {
+    headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "max-age=21600" },
+  });
+  ctx.waitUntil(cache.put(key, res.clone()));
+  return res;
+}
+
 async function bigorders(url, env, ctx) {
   const symbol = url.searchParams.get("symbol") || "";
   const min = Math.min(Math.max(parseInt(url.searchParams.get("min") || "25", 10) || 25, 1), 999);
@@ -134,6 +157,7 @@ export default {
     const url = new URL(request.url);
     try {
       if (url.pathname === "/bigorders") return await bigorders(url, env, ctx);
+      if (url.pathname === "/candles") return await candles(url, env, ctx);
       return await mis(url, env);
     } catch (e) {
       return json({ error: String(e.message || e).slice(0, 120) }, 502);  // 一律帶跨網域標頭，網頁才看得到原因

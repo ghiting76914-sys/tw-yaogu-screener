@@ -39,6 +39,29 @@ def _r(x, k=2):
     return None if x is None else round(x, k)
 
 
+def etf_index():
+    """所有上市櫃 ETF（代號 00 開頭）的名稱與最新收盤價。行情快取只存一般股，ETF 的歷史走勢由網頁向轉接站的 /candles 取得。"""
+    from yaogu import fetch_json, num
+    out = {}
+    try:
+        for r in fetch_json("https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"):
+            if r["Code"].startswith("00") and num(r.get("ClosingPrice")):
+                c, ch = num(r["ClosingPrice"]), num(r.get("Change")) or 0
+                out[r["Code"]] = {"n": r["Name"].strip(), "m": "上市", "c": c,
+                                  "p": round(ch / (c - ch) * 100, 2) if c - ch > 0 else None,
+                                  "v": round((num(r.get("TradeVolume")) or 0) / 1000)}
+        for r in fetch_json("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes"):
+            code = r["SecuritiesCompanyCode"].strip()
+            if code.startswith("00") and num(r.get("Close")):
+                c, ch = num(r["Close"]), num(r.get("Change")) or 0
+                out[code] = {"n": r["CompanyName"].strip(), "m": "上櫃", "c": c,
+                             "p": round(ch / (c - ch) * 100, 2) if c - ch > 0 else None,
+                             "v": round((num(r.get("TradingShares")) or 0) / 1000)}
+    except Exception as e:
+        print(f"ETF 清單讀取失敗：{e}")
+    return out
+
+
 def build(history, ref, data):
     series = strategy.build_series(history)
     t = len(history) - 1
@@ -132,5 +155,6 @@ def build(history, ref, data):
     # 盤中預覽產生的資料：價格是盤中即時價，不是收盤價
     return {"date": day.isoformat(), "live": live["time"][:5] if live and not live.get("final") else None,
             "breadth": round(breadth * 100, 1),
+            "etfs": etf_index(),
             "similar": {"period": sim_table["period"], "split": sim_table["split"]} if sim_table else None,
             "stocks": out}
