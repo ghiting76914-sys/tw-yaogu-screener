@@ -179,6 +179,9 @@ tbody tr.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); 
 .sc-head h2 { margin: 0; font-size: 20px; }
 .sc-head .px { font-size: 24px; font-weight: 700; }
 .sc-close { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 0 4px; }
+.sc-sim { margin-top: 12px; }
+.sc-sim h4 { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
+.sc-sim-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .sc-big { margin-top: 12px; }
 .sc-big-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 .sc-big-head h4 { margin: 0; font-size: 13px; color: var(--muted); }
@@ -1046,6 +1049,33 @@ function entryZone(x, v) {
   return null;
 }
 
+// 歷史相似情況（similar.py／research/build_similar.py）：s = [訓練 n, 5日平均, 5日上漲%, 20日平均, 20日上漲%, 20日最差10%,
+//                                                              驗證 n, 5日平均, 5日上漲%, 20日平均, 20日上漲%, 20日最差10%]
+function simVerdict(s) {
+  const a20 = Math.min(s[3], s[9]), w20 = Math.min(s[4], s[10]), b20 = Math.max(s[3], s[9]);
+  if (a20 >= 1.5 && w20 >= 50) return ["good", "歷史上偏多"];
+  if (b20 <= 0) return ["bad", "歷史上偏弱"];
+  return ["", "歷史上中性（沒有明顯優勢）"];
+}
+function simHtml(x) {
+  const meta = searchData.similar;
+  if (!meta) return "";
+  if (!x.sim) return `<div class="sc-sim"><h4>📊 歷史相似情況</h4><div class="muted" style="font-size:13px">這檔成交量太小（20 日均量 &lt; 500 張）、股價低於 10 元或資料不足，沒有可靠的歷史統計。</div></div>`;
+  const s = x.sim.s, v = simVerdict(s);
+  const cell = (avg, win) => `<b class="${avg > 0 ? "up" : avg < 0 ? "down" : ""}">${pct(avg)}%</b><span class="muted">｜上漲 ${win.toFixed(0)}%</span>`;
+  return `<div class="sc-sim">
+    <h4>📊 歷史相似情況<span class="muted" style="font-weight:400">（${meta.period.slice(0, 4)}～${meta.period.split("～")[1].slice(0, 4)} 年，條件跟這檔現在一樣的 ${(s[0] + s[6]).toLocaleString()} 次）</span></h4>
+    <div class="sc-sim-tags">${x.sim.desc.map((d) => `<span class="chip sm dim">${esc(d)}</span>`).join("")}</div>
+    <div class="sc-verdict ${v[0]}" style="margin-top:8px;padding:8px 12px"><b class="lv" style="font-size:15px">${v[1]}</b></div>
+    <table class="sc-levels num" style="margin-top:6px">
+      <tr><td>持有 5 天</td><td class="h" style="text-align:left">訓練 ${cell(s[1], s[2])}　驗證 ${cell(s[7], s[8])}</td></tr>
+      <tr><td>持有 20 天</td><td class="h" style="text-align:left">訓練 ${cell(s[3], s[4])}　驗證 ${cell(s[9], s[10])}</td></tr>
+      <tr><td>最差 10%</td><td class="h" style="text-align:left">20 天內有 1/10 的機會跌超過 <b class="down">${pct(Math.min(s[5], s[11]))}%</b></td></tr>
+    </table>
+    <div class="muted" style="font-size:12px;margin-top:4px">明天開盤買、持有 5／20 個交易日收盤賣，已扣成本、含除權息；訓練期到 ${meta.split.slice(0, 4)}/${meta.split.slice(4, 6)}、驗證期之後。只代表過去相同條件的平均，不是這檔的預測。</div>
+  </div>`;
+}
+
 function sparkSvg(xs) {
   if (!xs || xs.length < 2) return "";
   const lo = Math.min(...xs), hi = Math.max(...xs), W = 260, H = 54;
@@ -1093,6 +1123,7 @@ function showStock(code) {
          <div class="muted" style="font-size:12.5px;margin-top:2px">${zone.note}</div>`
       : `<span class="muted">建議進場區間</span><b style="font-size:15px">目前沒有</b>
          <div class="muted" style="font-size:12.5px;margin-top:2px">這檔目前不符合回測驗證過的買進條件（${esc(v.lv)}），所以不給進場價；符合條件時這裡會顯示區間。</div>`}</div>
+    ${simHtml(x)}
     ${STATIC && !ALERT_WORKER ? "" : `<div class="sc-big" id="scBig"><div class="muted">讀取當沖／短線檢查…</div></div>`}
     <div class="sc-grid">
       <div>
