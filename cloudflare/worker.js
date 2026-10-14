@@ -1,6 +1,6 @@
 // 妖股雷達的即時資料轉接站（Cloudflare Worker）。網頁放在 GitHub Pages，瀏覽器不能直接讀這些資料（沒有開放跨網域）。
 //
-//   /?ex_ch=tse_2330.tw|otc_6488.tw   證交所 MIS 即時報價（盤中到價提醒、搜尋卡片即時價）
+//   /?ex_ch=tse_2330.tw|otc_6488.tw   證交所 MIS 即時報價（盤中到價提醒、搜尋卡片即時價）；證交所出錯時重試，再不行改用富果報價
 //   /bigorders?symbol=2330&min=25     富果逐筆成交 → 今日均價與大單統計（搜尋卡片「當沖／短線檢查」）
 //
 // 富果金鑰存在 Worker 的祕密變數 FUGLE_KEY（Settings → Variables and Secrets），不會出現在網頁或程式碼裡。
@@ -14,14 +14,47 @@ function json(obj, status = 200) {
   });
 }
 
-async function mis(url) {
-  const ex = url.searchParams.get("ex_ch") || "";
-  if (!/^(tse|otc)_[0-9A-Z]{4,6}\.tw(\|(tse|otc)_[0-9A-Z]{4,6}\.tw){0,79}$/.test(ex)) return json({ error: "bad request" }, 400);
+async function misOnce(ex) {
   const res = await fetch("https://mis.twse.com.tw/stock/api/getStockInfo.jsp?json=1&delay=0"
     + `&ex_ch=${encodeURIComponent(ex)}&_=${Date.now()}`,
     { headers: { "User-Agent": "Mozilla/5.0", "Referer": "https://mis.twse.com.tw/stock/index.jsp" } });
-  return new Response(await res.text(), {
-    status: res.status, headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
+  const text = await res.text();
+  if (!res.ok || !text.includes("msgArray")) throw new Error(`證交所 HTTP ${res.status}`);
+  return text;
+}
+
+// 證交所偶爾短暫出錯（HTTP 520 等）：先重試 2 次；仍失敗且只查少數幾檔時，改用富果即時報價（轉成證交所的欄位格式）
+async function fugleQuotes(ex, env) {
+  const codes = [...new Set(ex.split("|").map((x) => x.slice(4, -3)))];
+  const msgArray = [];
+  for (const c of codes) {
+    const r = await fetch(`https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/${c}`, { headers: { "X-API-KEY": env.FUGLE_KEY } });
+    if (!r.ok) continue;
+    const q = await r.json();
+    const px = (v) => (v == null ? "-" : String(v));
+    const lv = (arr) => (arr || []).map((x) => x.price).join("_") + "_";
+    const lim = q.limitUpPrice ?? (q.isLimitUpPrice ? q.lastPrice : null);
+    msgArray.push({
+      c, n: q.name, z: px(q.lastPrice ?? q.closePrice), y: px(q.previousClose ?? q.referencePrice),
+      o: px(q.openPrice), h: px(q.highPrice), l: px(q.lowPrice), u: px(lim), w: px(q.limitDownPrice),
+      v: px(q.total && q.total.tradeVolume), b: lv(q.bids), a: lv(q.asks),
+      t: q.lastUpdated ? new Date(q.lastUpdated / 1000 + 8 * 3600000).toISOString().slice(11, 19) : "", src: "fugle",
+    });
+  }
+  return JSON.stringify({ msgArray, rtcode: "0000", src: "fugle" });
+}
+
+async function mis(url, env) {
+  const ex = url.searchParams.get("ex_ch") || "";
+  if (!/^(tse|otc)_[0-9A-Z]{4,6}\.tw(\|(tse|otc)_[0-9A-Z]{4,6}\.tw){0,79}$/.test(ex)) return json({ error: "bad request" }, 400);
+  let text = null, err = null;
+  for (let i = 0; i < 3 && !text; i++) {
+    try { text = await misOnce(ex); } catch (e) { err = e; await new Promise((r) => setTimeout(r, 250 * (i + 1))); }
+  }
+  if (!text && env.FUGLE_KEY && ex.split("|").length <= 6) text = await fugleQuotes(ex, env);
+  if (!text) throw err || new Error("證交所暫時無回應");
+  return new Response(text, {
+    headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
   });
 }
 
@@ -100,7 +133,7 @@ export default {
     const url = new URL(request.url);
     try {
       if (url.pathname === "/bigorders") return await bigorders(url, env, ctx);
-      return await mis(url);
+      return await mis(url, env);
     } catch (e) {
       return json({ error: String(e.message || e).slice(0, 120) }, 502);  // 一律帶跨網域標頭，網頁才看得到原因
     }
