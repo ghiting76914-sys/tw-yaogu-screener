@@ -48,6 +48,10 @@ def main():
                 o, h, l, c, ch, v = x
                 if p["entry"] is None:
                     p["entry"], first = o, True
+                    if p.get("c0"):  # 隔天開盤相對選股日收盤的跳空，供進場區間研究
+                        g = (o / p["c0"] - 1) * 100
+                        p["label"] = p["exit"] + ("｜開盤<-3%" if g < -3 else "｜開盤-3~0%" if g < 0 else "｜開盤0~3%" if g < 3
+                                                   else "｜開盤3~6%" if g < 6 else "｜開盤≥6%")
                 else:
                     first = False
                     if p["last"] and p["last"] - (c - ch) > p["last"] * 0.003:
@@ -75,6 +79,8 @@ def main():
                     ret = (out / p["entry"] - 1) * 100
                     if -70 < ret < 300:
                         res[(p.get("label", ex), p["t"] >= split)].append(ret - COST)
+                        if p.get("label", ex) != ex and "｜開盤" in p.get("label", ""):
+                            res[(ex, p["t"] >= split)].append(ret - COST)  # 分組之外也計入總計
                     continue
             still.append(p)
         positions = still
@@ -101,7 +107,7 @@ def main():
                 # 「…收盤買」：選股當天收盤價買進（盤後定價交易），其餘為隔天開盤買
                 close_buy = ex.endswith("收盤買")
                 c0 = day[code][3]
-                positions.append({"code": code, "exit": ex.replace("收盤買", ""), "label": ex, "t": t,
+                positions.append({"code": code, "exit": ex.replace("收盤買", ""), "label": ex, "t": t, "c0": None if close_buy else c0,
                                   "entry": c0 if close_buy else None, "cum": 0.0,
                                   "last": c0 if close_buy else None, "k": 0})
 
@@ -112,6 +118,11 @@ def main():
                 f"最差{xs[0]:+6.1f}% 最差5%平均{sum(xs[:len(xs) // 20]) / (len(xs) // 20):+6.1f}% 賠超過15%:{big:4.1f}%")
 
     print(f"行情 {days[60]} ～ {days[-1]}；訓練期到 {days[split - 1]}，驗證期從 {days[split]}；已扣成本\n")
+    for g in sorted({k[0] for k in res if "｜開盤" in k[0]}):
+        if res[(g, False)] and res[(g, True)]:
+            print(g)
+            print(f"   訓練 {st(res[(g, False)])}")
+            print(f"   驗證 {st(res[(g, True)])}")
     for ex in EXITS:
         print(ex)
         print(f"   訓練 {st(res[(ex, False)])}")

@@ -170,6 +170,8 @@ tbody tr.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); 
 .sc-head h2 { margin: 0; font-size: 20px; }
 .sc-head .px { font-size: 24px; font-weight: 700; }
 .sc-close { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 0 4px; }
+.sc-zone { background: var(--panel-2); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; }
+.sc-zone b { font-size: 18px; margin-left: 8px; }
 .sc-live { margin-top: 8px; font-size: 13.5px; display: block; }
 .sc-live .live { margin-right: 6px; }
 .sc-live span + span, .sc-live b + span { margin-left: 8px; }
@@ -972,6 +974,23 @@ function searchVerdict(x) {
   return { cls: "", lv: "觀望", why: "目前沒有符合任何回測驗證過的買點" + (f ? `（營收：${f.h12 ? "" : "沒有創 12 個月新高"}${!f.h12 && f.yoy <= 20 ? "、" : ""}${f.yoy <= 20 ? "年增未超過 20%" : ""}）` : "（沒有營收資料）") + "。", swing: false };
 }
 
+// 台股升降單位：取不高於 / 不低於 price 的有效價格
+function tickSize(p) { return p < 10 ? 0.01 : p < 50 ? 0.05 : p < 100 ? 0.1 : p < 500 ? 0.5 : p < 1000 ? 1 : 5; }
+function tickFloor(p) { const t = tickSize(p); return Math.floor(p / t + 1e-9) * t; }
+function tickCeil(p) { const t = tickSize(p); return Math.ceil(p / t - 1e-9) * t; }
+
+// 建議進場區間（research/top3_stop.py：隔天開盤跳空分組）
+//   波段：下緣 收盤 × 0.97（開低超過 3% 勝率只剩約 3 成），上緣 漲停價（開高越多，回測平均反而越好）
+//   隔日沖 ⭐：收盤前，現價附近、不追漲停；當沖：依開盤跳空觸發價
+function entryZone(x, v) {
+  const tags = new Set(x.tags), lim = tickFloor(x.c * 1.1);
+  if (v.swing) return { lo: tickCeil(x.c * 0.97), hi: lim, best: x.c,
+    note: `最好是選股日收盤價 ${fmt(x.c)}（盤後定價）。隔天開低超過 3% 代表轉弱（11 年回測勝率只剩約 3 成），不買；開高照買（回測開高越多平均越好），停損改用實際買價 -10%。` };
+  if (tags.has("rec")) return { lo: null, hi: tickFloor(lim - tickSize(lim)), best: x.c,
+    note: "收盤前（13:25 前）以現價附近買進；已漲停排隊買到的多半會被打開，不追。" };
+  return null;
+}
+
 function sparkSvg(xs) {
   if (!xs || xs.length < 2) return "";
   const lo = Math.min(...xs), hi = Math.max(...xs), W = 260, H = 54;
@@ -984,7 +1003,7 @@ function showStock(code) {
   const x = searchData && searchData.stocks[code];
   const el = $("searchCard");
   if (!x) return;
-  const v = searchVerdict(x), f = x.rev;
+  const v = searchVerdict(x), f = x.rev, zone = entryZone(x, v);
   const ps = (state.data && state.data.pivot_stats) || {};
   const pst = (x.p || 0) >= 7 ? ps.strong : ps.all;
   const yes = (b) => b == null ? '<span class="n">–</span>' : b ? '<span class="y">✓</span>' : '<span class="x">✗</span>';
@@ -1017,6 +1036,9 @@ function showStock(code) {
         <h4 style="margin-top:12px">近 20 日走勢</h4>${sparkSvg(x.spark)}
       </div>
       <div>
+        ${zone ? `<div class="sc-zone"><span class="muted">建議進場區間</span>
+          <b class="num">${zone.lo == null ? "現價" : fmt(zone.lo)} ～ ${fmt(zone.hi)}</b>
+          <div class="muted" style="font-size:12.5px;margin-top:2px">${zone.note}</div></div>` : ""}
         ${v.swing ? `<h4>波段點位（精選 3 檔的回測規則）</h4>
         <table class="sc-levels num">
           <tr><td>進場</td><td class="v">${fmt(x.c)}</td><td class="h">${searchData.date === twDay(twNow()) ? "今天 14:00～14:30 盤後定價，或明天開盤" : `${searchData.date.slice(5).replace("-", "/")} 收盤價；之後進場請以實際買價重算停損`}</td></tr>
@@ -1042,7 +1064,7 @@ function showStock(code) {
     </div>`;
   el.hidden = false;
   $("scClose").onclick = () => { el.hidden = true; clearTimeout(liveTimer); };
-  liveStock = { code, x, swing: v.swing };
+  liveStock = { code, x, swing: v.swing, zone };
   pollLive();
   const d = $("scDetail");
   if (d) d.onclick = (e) => { e.preventDefault(); select(code); $("detail").scrollIntoView({ behavior: "smooth" }); };
@@ -1072,6 +1094,7 @@ async function pollLive() {
         <b class="num ${cls}" style="font-size:18px">${fmt(q.price)}</b> <span class="num ${cls}">${pct(chg)}%</span>
         ${q.high ? `<span class="num">高 ${fmt(q.high)}　低 ${fmt(q.low)}</span>` : ""}
         ${q.traded ? "" : '<span class="muted">（這一刻無成交，顯示委買價）</span>'}
+        ${ls.zone && ls.zone.lo != null ? `<div style="margin-top:4px;font-size:13px">${q.price < ls.zone.lo ? '<b class="down">低於建議進場區間（轉弱，先不買）</b>' : q.price > ls.zone.hi ? "高於區間" : '<b class="up">✓ 在建議進場區間內</b>'}</div>` : ""}
         <div style="margin-top:4px;font-size:12.5px">${today ? `${where}；距 R1 ${d(pv.R1)}、S1 ${d(pv.S1)}` : "點位是以最新收盤計算的下一個交易日參考"}${ls.swing ? `；距停損 ${d(x.c * 0.9)}` : ""}</div>`;
     }
   } catch (e) {
