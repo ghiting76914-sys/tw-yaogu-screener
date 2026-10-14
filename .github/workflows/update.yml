@@ -100,6 +100,15 @@ jobs:
           CRON_TOKEN_EXPIRES: "2027-10-03"
         run: python notify_line.py ${{ inputs.force_line && '--force' || '' }} ${{ inputs.revenue_test && '--revenue-test' || '' }}
 
+      # Telegram（與 LINE 同樣的內容與時機；沒設定 TELEGRAM_BOT_TOKEN／TELEGRAM_CHAT_ID 就略過）
+      - name: 傳送到 Telegram
+        if: ${{ !inputs.skip_line }}
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python notify_telegram.py ${{ inputs.force_line && '--force' || '' }}
+
       # 公開 repo 60 天沒有程式更新時，GitHub 會自動停用排程；每次執行都重新啟用一次，計時就會重來
       - name: 保持自動更新啟用
         continue-on-error: true

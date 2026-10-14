@@ -118,6 +118,16 @@ Cloudflare Worker 的 `/bigorders` 用富果 API（金鑰存在 Worker 祕密變
 GitHub Pages 不能直接讀證交所即時行情，透過 Cloudflare Worker 轉接（`cloudflare/worker.js`，網址設定在 `web/index.html` 的 `ALERT_WORKER`）；
 本機版改用 `server.py` 的 `/api/mis`。iPhone 需先把網站「加入主畫面」才能收到系統通知。
 
+## Telegram 通知（`notify_telegram.py`）
+
+與 LINE 同樣的時機與內容（12:30 隔日沖、13:40 精選 3 檔＋明日強勢候選、換股日營收動能、0050 回檔），
+Telegram 免費、沒有每月則數限制，適合用頻道群發。設定：
+1. Telegram 搜尋 @BotFather → `/newbot` 建立機器人，取得金鑰
+2. 建立頻道（或群組），把機器人加進去並設為管理員，在裡面發一則訊息
+3. 本機執行 `python3 scripts/telegram_chat_id.py`（貼上金鑰，不會顯示或存檔）取得頻道 ID
+4. GitHub → Settings → Secrets and variables → Actions：新增 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`（多個以逗號分隔）
+5. `python3 notify_telegram.py --test`（或等下一次排程）確認收得到
+
 ## 長期無人維護時
 
 網站與推播全部在 GitHub Actions、GitHub Pages、cron-job.org、LINE 上執行，不需要本機或 Claude Code。
