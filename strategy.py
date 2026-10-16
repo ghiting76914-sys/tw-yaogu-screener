@@ -919,6 +919,22 @@ def panic_rebound(history):
             "list": cands if active else [], "rules": PANIC, "research": PANIC_RESEARCH}
 
 
+def daytrade_pool(history, ref=None):
+    """盤中即時掃描「明天當沖候選」用的股票池：20 日均量 ≥ 1000 張、股價 ≥ 10 元的一般股（不含處置股），[[代號, tse/otc], ...]。"""
+    series = build_series(history)
+    t = len(history) - 1
+    disposal = (ref or {}).get("disposal") or set()
+    out = []
+    for code, s in series.items():
+        r = s[t]
+        if code in disposal or not r or r["close"] is None or len(code) != 4 or code[0] == "0" or r["close"] < DAYTRADE["min_price"]:
+            continue
+        vols = [x["volume"] for x in s[max(0, t - 19):t + 1] if x and x["volume"] is not None]
+        if len(vols) >= 20 and sum(vols) / 20 >= DAYTRADE["min_lots"] * 1000:
+            out.append([code, "otc" if r["market"] == "上櫃" else "tse"])
+    return out
+
+
 def daytrade_previous(history, ref=None):
     """前一交易日的當沖名單（今天要做的那份），加上今天的開盤、方向與結果（盤中時「結果」是以現價計算的暫時損益）。"""
     if len(history) < 22:
