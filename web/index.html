@@ -532,6 +532,7 @@ html { scroll-behavior: smooth; }
         <button class="on" data-v="">全部</button><button data-v="上市">上市</button><button data-v="上櫃">上櫃</button>
       </div>
     </div>
+    <label class="check"><input type="checkbox" id="onlyStar"> 只看 ⭐</label>
     <label class="check"><input type="checkbox" id="onlyLimit"> 只看漲停</label>
     <label class="check"><input type="checkbox" id="noDisposal"> 排除處置股</label>
     <div class="ctl search">
@@ -571,10 +572,12 @@ html { scroll-behavior: smooth; }
 
   <section class="stats">
     <div class="stat"><div class="k">符合條件</div><div class="v num" id="stCount">–</div></div>
+    <div class="stat"><div class="k">⭐ 推薦</div><div class="v num" id="stStar">–</div></div>
     <div class="stat"><div class="k">今日漲停</div><div class="v num up" id="stLimit">–</div></div>
     <div class="stat"><div class="k">連續漲停 ≥ 2</div><div class="v num up" id="stStreak">–</div></div>
     <div class="stat"><div class="k">注意 / 處置</div><div class="v num" id="stWarn">–</div></div>
   </section>
+  <div id="radarStar"></div>
   </div>
 
   <section class="layout">
@@ -757,6 +760,7 @@ function filtered() {
     r["分數"] >= min &&
     (!state.market || r["市場"] === state.market) &&
     (!onlyLimit || r["連續漲停"] >= 1) &&
+    (!$("onlyStar").checked || r["推薦"]) &&
     (!noDisp || !isDisposal(r)) &&
     (!q || r["代號"].includes(q) || r["名稱"].toLowerCase().includes(q))
   );
@@ -849,6 +853,8 @@ function render() {
   renderScoreDist();
   $("stCount").innerHTML = `${rows.length}<small>/ ${state.data ? state.data.results.length : 0}</small>`;
   $("stLimit").textContent = rows.filter((r) => r["連續漲停"] >= 1).length;
+  $("stStar").textContent = rows.filter((r) => r["推薦"]).length;
+  renderRadarStar();
   $("stStreak").textContent = rows.filter((r) => r["連續漲停"] >= 2).length;
   $("stWarn").innerHTML = `<span style="color:var(--warn)">${rows.filter(isAttention).length}</span><small>/</small> ${rows.filter(isDisposal).length}`;
 
@@ -866,7 +872,7 @@ function render() {
       isDisposal(r) ? `<span class="chip sm amber">處置</span>` : "",
     ].join("");
     return `<tr data-code="${r["代號"]}" class="${r["代號"] === state.selected ? "sel" : ""}">
-      <td class="l"><span class="name">${esc(r["名稱"])}</span><span class="code num">${r["代號"]}</span><span class="mkt">${r["市場"]}</span></td>
+      <td class="l"><span class="name">${r["推薦"] ? "⭐" : ""}${esc(r["名稱"])}</span><span class="code num">${r["代號"]}</span><span class="mkt">${r["市場"]}</span></td>
       <td class="num">${fmt(r["收盤"])}</td>
       <td class="num">${pct(r["漲跌%"])}</td>
       <td class="num">${pct(r["5日%"], 1)}</td>
@@ -880,6 +886,29 @@ function render() {
       <td class="l"><span class="flags">${flags}</span></td>
     </tr>`;
   }).join("");
+}
+
+// 妖股雷達 ⭐ 的說明（research/star_study.py）
+function renderRadarStar() {
+  const S = state.data && state.data.radar_star;
+  if (!S) { $("radarStar").innerHTML = ""; return; }
+  $("radarStar").innerHTML = `<div class="banner" style="margin:0 0 12px">
+    <div class="banner-head"><h3>⭐ 可以買的：營收創 12 個月新高、年增 &gt; 20%</h3>
+      <span class="sub">雷達上的其他股票 11 年回測都沒有優勢，只看 ⭐（處置股不給 ⭐）</span></div>
+    <div class="howto">
+      <span><b class="n">1</b>隔天開盤買進</span>
+      <span><b class="n">2</b>跌破買進價 -${S.stop}% 停損</span>
+      <span><b class="n">3</b>持有 ${S.hold} 個交易日賣出</span>
+    </div>
+    <details class="more"><summary>回測數據與風險</summary>
+      <div style="font-size:13.5px;line-height:1.7">
+        <p style="margin:0 0 6px">${S.period}，每筆平均 <b>${pct(S.train.avg)}%／${pct(S.test.avg)}%</b>（訓練／驗證期，已扣成本）；
+          同期雷達全部 ${pct(S.all.train)}%／${pct(S.all.test)}%，所有站上季線的股票 ${pct(S.base.train)}%／${pct(S.base.test)}%。</p>
+        <p style="margin:0 0 6px"><b>勝率只有約 ${Math.round(S.test.win)}%</b>：大部分會停損出場，靠少數大漲的股票拉高平均，一定要分散買、照停損走。</p>
+        <p style="margin:0">分數高低、連續漲停、族群齊漲、起漲第 1 根都測過，沒有幫助。資金有限時，優先買「明日精選 3 檔」（同樣看營收，回測平均 +3.2～3.7%）。</p>
+      </div>
+    </details>
+  </div>`;
 }
 
 // ---------------------------------------------------------------- 個股明細
@@ -2201,6 +2230,7 @@ function renderPre() {
         ? `比同期間隨便買好 ${diff.toFixed(2)} 個百分點，但<b>本身${h.avg > 0 ? "報酬很小" : "仍是虧損"}，沒有穩定的獲利優勢</b>。請當作觀察名單。`
         : "<b>回測沒有比隨便買更好</b>。這是教科書上的經典型態，但這段期間市場不買單，請當作觀察名單。";
   }
+  verdict += " 11 年回測也找不到可以加 ⭐ 的條件（營收、大盤、族群、量縮、型態強度等分組，平均都在 ±0.3% 以內），所以這裡沒有推薦。";
   const m = d.market;
   const paused = m && m.up === false;
   const mktNote = !m ? `<p class="filter-note">加權指數資料不足，無法判斷大盤狀態。</p>`
@@ -2327,7 +2357,7 @@ function allocation() {
         <tr><td>核心</td><td>0050 定期定額</td><td>大部分</td><td style="text-align:left;white-space:normal">13 年回測中最穩、長期報酬最高的做法；每月初直接買，不必等低點</td></tr>
         <tr><td>衛星</td><td>營收動能 20 檔／明日精選 3 檔</td><td>小部分<br>（例如合計不超過 2～3 成）</td><td style="text-align:left;white-space:normal">11 年都贏過大盤，但最差一個月約 -19%～-21%、單筆最差曾到 -60%；分散持有，單一股票不超過總資金 5%</td></tr>
         <tr><td>短線</td><td>隔日沖</td><td>很小<br>（例如不超過 1 成）</td><td style="text-align:left;white-space:normal">勝率約一半、每筆平均只有 +0.2～0.3%，單筆最差約 -15%；鎖漲停的常買不到，交易成本影響很大</td></tr>
-        <tr><td>不建議</td><td>妖股雷達、明日強勢候選、起漲前夕</td><td>0</td><td style="text-align:left;white-space:normal">2 年回測沒有明顯優勢，僅供觀察</td></tr>
+        <tr><td>不建議</td><td>妖股雷達（⭐ 以外）、明日強勢候選、起漲前夕</td><td>0</td><td style="text-align:left;white-space:normal">回測沒有明顯優勢，僅供觀察；雷達 ⭐ 平均 +1.6～2.5% 但勝率約 34%，算在衛星部位裡</td></tr>
       </tbody>
     </table></div>
   </div>`;
@@ -2874,7 +2904,7 @@ $("scoreDist").addEventListener("click", (e) => {
   $("minScoreOut").textContent = b.dataset.v;
   render();
 });
-["q", "onlyLimit", "noDisposal"].forEach((id) => $(id).addEventListener("input", render));
+["q", "onlyStar", "onlyLimit", "noDisposal"].forEach((id) => $(id).addEventListener("input", render));
 // 成交量、股本門檻會影響伺服器端的評分，變更後重新篩選
 ["minVol", "smallCap"].forEach((id) => $(id).addEventListener("change", runScreen));
 $("market").addEventListener("click", (e) => {

@@ -103,9 +103,10 @@ def run_screen(date_str, min_volume, small_cap, live=True):
                                   strategy.overnight_backtest(history),
                                   strategy.pivot_stats(history))
         previous = _previous(history, res, small_cap)
+        _radar_star(res["results"], trade_date, res["ref"])
     scanned = sum(1 for c in history[-1][1] if yaogu.is_common_stock(c))
     data = {"trade_date": trade_date.isoformat(), "scanned": scanned, "live": res["live"],
-            "market_open": yaogu.market_open_now(), "results": res["results"],
+            "market_open": yaogu.market_open_now(), "results": res["results"], "radar_star": strategy.RADAR_STAR,
             "picks": picks, "backtest": _backtests[bt_key][0],
             "pre": pre, "pre_backtest": _backtests[bt_key][1],
             "market": res["market"][-1], "insti_ready": res["insti"][-1] is not None,
@@ -132,6 +133,19 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         print(f"實際績效計算失敗：{e}")
         data["perf"] = None
     return data
+
+
+def _radar_star(results, day, ref):
+    """妖股雷達 ⭐：營收創 12 個月新高且年增 > 20%（strategy.RADAR_STAR）；處置股撮合慢、不易進出，不給 ⭐。"""
+    try:
+        rv = revenue.load_revenue([day])
+    except Exception as e:
+        print(f"妖股雷達 ⭐ 營收讀取失敗：{e}")
+        return
+    for r in results:
+        f = revenue.features(rv, r["代號"], day)
+        r["推薦"] = bool(f and f["high12"] and f["yoy"] > 20) and r["代號"] not in ref["disposal"]
+        r["營收年增%"] = round(f["yoy"], 1) if f else None
 
 
 def _previous(history, res, small_cap):
