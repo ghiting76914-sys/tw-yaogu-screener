@@ -68,6 +68,11 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             (res["live"] or {}).get("time", "")[:5] or dt.datetime.now().strftime("%H:%M"))
         daytrade = strategy.daytrade_watch(history, res["ref"])
         panic = strategy.panic_rebound(history)
+        try:
+            daytrade_prev = strategy.daytrade_previous(history, res["ref"])
+        except Exception as e:
+            print(f"前一天當沖名單計算失敗：{e}")
+            daytrade_prev = None
         # 明日強勢候選中，今天 12:30 隔日沖名單也有的股票（盤中執行時就用當下的名單）
         snap = snapshots._load(trade_date.isoformat(), "preview")
         on_codes = {p["代號"] for p in (snap or {}).get("overnight", [])} | (
@@ -105,7 +110,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             # 盤中：推播後才符合條件的股票（回測規則同樣成立，但未推播、不計入績效）
             "overnight_new": [p for p in overnight_live if p["代號"] not in {x["代號"] for x in overnight}]
             if overnight_fixed and overnight_fixed["kind"] == "pushed" else [], "overnight_backtest": _backtests[bt_key][2],
-            "daytrade": {"list": daytrade, "rules": strategy.DAYTRADE, "research": strategy.DAYTRADE_RESEARCH},
+            "daytrade": {"list": daytrade, "previous": daytrade_prev, "rules": strategy.DAYTRADE, "research": strategy.DAYTRADE_RESEARCH},
             "panic": panic,
             "overnight_research": strategy.OVERNIGHT_RESEARCH, "previous": previous,
             "pivot_stats": _backtests[bt_key][3]}

@@ -846,10 +846,10 @@ DAYTRADE_RESEARCH = {
 }
 
 
-def daytrade_watch(history, ref=None):
-    """今天收盤鎖漲停、20 日均量 ≥ 1000 張的一般股：明天的當沖觀察名單與觸發價。"""
+def daytrade_watch(history, ref=None, t=None):
+    """今天（或第 t 天）收盤鎖漲停、20 日均量 ≥ 1000 張的一般股：明天的當沖觀察名單與觸發價。"""
     series = build_series(history)
-    t = len(history) - 1
+    t = len(history) - 1 if t is None else t
     disposal = (ref or {}).get("disposal") or set()
     out = []
     for code, s in series.items():
@@ -917,6 +917,25 @@ def panic_rebound(history):
     cands.sort(key=lambda p: p["近5日%"])
     return {"active": active, "count": len(cands), "breadth": round(breadth * 100, 1) if breadth is not None else None,
             "list": cands if active else [], "rules": PANIC, "research": PANIC_RESEARCH}
+
+
+def daytrade_previous(history, ref=None):
+    """前一交易日的當沖名單（今天要做的那份），加上今天的開盤、方向與結果（盤中時「結果」是以現價計算的暫時損益）。"""
+    if len(history) < 22:
+        return None
+    series = build_series(history)
+    out = []
+    for p in daytrade_watch(history, ref, t=len(history) - 2):
+        b = series[p["代號"]][-1]
+        row = {**p, "開盤": None, "跳空%": None, "方向": None, "報酬%": None, "停損": False}
+        if b and None not in (b["open"], b["high"], b["low"], b["close"]) and b["open"] > 0:
+            o, c = b["open"], b["close"]
+            side, ret = daytrade_result(o, b["high"], b["low"], c, p["收盤"])
+            row.update({"開盤": o, "收盤今": c, "跳空%": round((o / p["收盤"] - 1) * 100, 2), "方向": side, "報酬%": ret,
+                        "開盤漲停": o >= p["明日漲停"],
+                        "停損": bool(side) and ret <= -DAYTRADE["stop"] - DAYTRADE["cost"] + 1e-9})
+        out.append(row)
+    return {"date": history[-2][0].isoformat(), "trade": history[-1][0].isoformat(), "list": out}
 
 
 def daytrade_result(o, h, l, c, prev_close):

@@ -1707,6 +1707,43 @@ function renderDay() {
         </table>
         ${D.list.length ? "" : `<div class="empty">沒有符合條件的股票（前一天沒有均量 1,000 張以上、收盤鎖漲停的股票）。</div>`}
       </div>
+    </div>${dayPrevHtml(D)}`;
+}
+
+// 前一份名單：上一個交易日收盤鎖漲停的股票，以及隔天實際的開盤、方向與結果（盤中時是以現價計算的暫時損益）
+function dayPrevHtml(D) {
+  const P = D.previous;
+  if (!P) return "";
+  const d = state.data, live = d.live && !d.live.final && P.trade === d.trade_date;
+  const md = (x) => x.slice(5).replace("-", "/");
+  const rows = P.list.map((p) => {
+    const act = p["開盤"] == null ? '<span class="muted">沒有開盤資料</span>'
+      : p["開盤漲停"] && p["跳空%"] > 0 ? "開盤就漲停 → 不空"
+      : p["方向"] === "做空" ? `<b class="down">放空</b>${p["停損"] ? "（碰到停損買回）" : live ? "（持有中）" : "（收盤買回）"}`
+      : p["方向"] === "做多" ? `<b class="up">做多</b>${p["停損"] ? "（碰到停損賣出）" : live ? "（持有中）" : "（收盤賣出）"}`
+      : '<span class="muted">跳空不到 ' + D.rules.gap + "% → 不做</span>";
+    const r = p["報酬%"];
+    return `<tr data-code="${p["代號"]}">
+      <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span></td>
+      <td class="num">${fmt(p["收盤"])}</td>
+      <td class="num">${p["開盤"] == null ? "–" : `${fmt(p["開盤"])}<br><span style="font-size:12px">${pct(p["跳空%"])}%</span>`}</td>
+      <td class="num">${p["收盤今"] == null ? "–" : fmt(p["收盤今"])}</td>
+      <td class="l" style="white-space:normal">${act}</td>
+      <td class="num">${r == null ? "–" : `<b class="${r > 0 ? "up" : r < 0 ? "down" : ""}">${pct(r)}%</b>`}</td></tr>`;
+  }).join("");
+  const done = P.list.filter((p) => p["報酬%"] != null);
+  const sum = done.length ? `，有交易 ${done.length} 檔、平均 ${pct(done.reduce((a, p) => a + p["報酬%"], 0) / done.length)}%` : "，沒有符合跳空條件的交易";
+  return `
+    <div class="card" style="margin-top:12px">
+      <div class="banner-head" style="padding:12px 14px 4px"><h3 style="margin:0;font-size:15px">前一天的名單</h3>
+        <span class="sub">${md(P.date)} 收盤鎖漲停 → ${md(P.trade)} 當沖${live ? `（盤中 ${(d.live.time || "").slice(0, 5)}，結果以現價暫算）` : ""}${P.list.length ? sum : ""}</span></div>
+      <div class="table-wrap" style="max-height:none">
+        <table>
+          <thead><tr><th class="l">股票</th><th>${md(P.date)} 收盤</th><th>${md(P.trade)} 開盤</th><th>${live ? "現價" : "收盤"}</th><th class="l">結果</th><th>報酬（已扣成本）</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${P.list.length ? "" : `<div class="empty">${md(P.date)} 沒有符合條件的股票。</div>`}
+      </div>
     </div>`;
 }
 
