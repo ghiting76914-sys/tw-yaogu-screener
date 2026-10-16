@@ -15,7 +15,8 @@ import strategy
 
 COST = strategy.ROUND_TRIP_COST
 MAX_TRADES = 200  # 網站只附最近 200 筆明細；統計仍用全部交易
-TOP3_CLOSE_FROM = "2026-10-13"  # 從這天起精選 3 檔改為當天收盤價買（13:40 推播、盤後定價）；之前照當時建議的隔天開盤買
+TOP3_CLOSE_FROM = "2026-10-13"
+GAP_FROM = "2026-10-16"  # 當沖「開盤跳空 ≥5% 放空」從這天起上線  # 從這天起精選 3 檔改為當天收盤價買（13:40 推播、盤後定價）；之前照當時建議的隔天開盤買
 
 
 LEDGER = os.path.join(snapshots.SNAP_DIR, "perf_ledger.json")
@@ -94,6 +95,29 @@ def compute(history, today_final=True):
                 "報酬%": round(ret, 2), "狀態": "已出場" if closed else "持有中", "天數": len(bars)}
 
     top3, overnight, overnight_limit, rev, daytrade, overnight_rec, panic = [], [], [], [], [], [], []
+    radar_star, day_gap = [], []
+    # 當沖：開盤跳空 ≥ 5% 放空（strategy.DAYTRADE_GAP）。名單完全由行情決定（前一天均量 ≥ 1000 張、股價 ≥ 10），直接用行情計算
+    for i in range(max(21, idx.get(GAP_FROM, n)), n):
+        for code in history[i][1]:
+            b, p0 = bar(i, code), bar(i - 1, code)
+            if not b or not p0 or len(code) != 4 or code[0] == "0" or not code.isdigit() or b["open"] is None \
+                    or b["change"] is None or b["close"] - b["change"] <= 0:
+                continue
+            prev = b["close"] - b["change"]
+            if prev < strategy.DAYTRADE["min_price"] or b["open"] / prev - 1 < strategy.DAYTRADE_GAP["gap"] / 100 - 1e-9:
+                continue
+            vols = [history[j][1].get(code) for j in range(i - 20, i)]
+            if any(x is None or x["volume"] is None for x in vols) or sum(x["volume"] for x in vols) / 20 < strategy.DAYTRADE["min_lots"] * 1000:
+                continue
+            side, ret = strategy.daytrade_result(b["open"], b["high"], b["low"], b["close"], prev)
+            if side != "做空":
+                continue  # 開盤就漲停：不空
+            stopped = ret <= -strategy.DAYTRADE["stop"] - strategy.DAYTRADE["cost"] + 1e-9
+            live = not today_final and i == n - 1 and not stopped
+            day_gap.append({"日期": history[i][0].isoformat(), "代號": code, "名稱": f"{b['name']}（開高 {(b['open'] / prev - 1) * 100:.1f}%）",
+                            "進場": b["open"], "出場": b["close"],
+                            "報酬%": round((b["open"] / b["close"] - 1) * 100, 2) if live else ret,
+                            "狀態": "持有中" if live else "已出場", "天數": 0 if live else 1})
     for s in _snaps():
         d = s["trade_date"]
         if d < dates[0]:
@@ -124,6 +148,10 @@ def compute(history, today_final=True):
                 if side:
                     daytrade.append({"日期": history[i + 1][0].isoformat(), "代號": p["代號"], "名稱": f"{p['名稱']}（{side}）",
                                      "進場": b["open"], "出場": b["close"], "報酬%": ret, "狀態": "已出場", "天數": 1})
+            for p in s.get("radar_star") or []:  # 妖股雷達 ⭐：隔天開盤買、持有 20 天、停損 -10%
+                t = hold_trade(d, p["代號"], p["名稱"], strategy.RADAR_STAR["hold"], stop=strategy.RADAR_STAR["stop"] / 100)
+                if t:
+                    radar_star.append(t)
             for p in s.get("panic") or []:  # 股災反彈：隔天開盤買、持有 5 天
                 t = hold_trade(d, p["代號"], p["名稱"], strategy.PANIC["hold"])
                 if t:
@@ -160,7 +188,8 @@ def compute(history, today_final=True):
         ledger = {}
     out = {}
     for key, trades in (("top3", top3), ("overnight", overnight), ("overnight_limit", overnight_limit), ("overnight_rec", overnight_rec),
-                        ("revenue", rev), ("daytrade", daytrade), ("panic", panic)):
+                        ("revenue", rev), ("daytrade", daytrade), ("panic", panic),
+                        ("radar_star", radar_star), ("daytrade_gap", day_gap)):
         book = ledger.setdefault(key, {})
         tkey = lambda x: f"{x['日期']}|{x['代號']}|{x['名稱']}"  # noqa: E731
         seen = {tkey(x) for x in trades}
