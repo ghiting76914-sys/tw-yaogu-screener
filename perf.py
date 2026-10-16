@@ -10,6 +10,7 @@ import glob
 import json
 import os
 
+import bigorders
 import snapshots
 import strategy
 
@@ -42,7 +43,25 @@ def _summary(trades):
     }
 
 
-def compute(history, today_final=True):
+def _by_big(trades):
+    """當沖交易依大單買賣比分組（bigorders.py 記錄，2026-10-16 起）。"""
+    out = {}
+    for x in trades:
+        g = x.get("大單")
+        if g and x["狀態"] == "已出場" and x["報酬%"] is not None:
+            out.setdefault(g, []).append(x["報酬%"])
+    return {g: {"n": len(v), "avg": round(sum(v) / len(v), 2), "win": round(sum(r > 0 for r in v) / len(v) * 100, 1)}
+            for g, v in out.items()}
+
+
+def daytrade_codes(history):
+    """今天（最後一天）有交易的當沖股票：前一天鎖漲停且開盤跳空 ≥3%（開盤漲停不空），以及開盤跳空 ≥5% 的放空。"""
+    res = compute(history, today_final=True, big=False)
+    day = history[-1][0].isoformat()
+    return [x["代號"] for k in ("daytrade", "daytrade_gap") for x in res[k]["trades"] if x["日期"] == day]
+
+
+def compute(history, today_final=True, big=True):
     """today_final=False：最後一天是盤中即時資料（還沒收盤），以收盤價出場的交易先標「盤中（未收盤）」不計入統計。"""
     dates = [d.isoformat() for d, _ in history]
     idx = {d: i for i, d in enumerate(dates)}
@@ -186,6 +205,14 @@ def compute(history, today_final=True):
             ledger = json.load(fh)
     except (OSError, ValueError):
         ledger = {}
+    if big:  # 當沖交易標上當天的大單買賣比分組
+        cache = {}
+        for x in daytrade + day_gap:
+            if x["日期"] not in cache:
+                cache[x["日期"]] = bigorders.load(x["日期"])
+            g = bigorders.bucket(cache[x["日期"]].get(x["代號"]))
+            if g:
+                x["大單"] = g
     out = {}
     for key, trades in (("top3", top3), ("overnight", overnight), ("overnight_limit", overnight_limit), ("overnight_rec", overnight_rec),
                         ("revenue", rev), ("daytrade", daytrade), ("panic", panic),
@@ -199,6 +226,8 @@ def compute(history, today_final=True):
         trades += [x for k, x in book.items() if k not in seen]
         trades.sort(key=lambda x: (x["日期"], x["代號"]), reverse=True)
         out[key] = {"summary": _summary(trades), "trades": trades[:MAX_TRADES]}
+        if key in ("daytrade", "daytrade_gap"):
+            out[key]["by_big"] = _by_big(trades)
     try:
         with open(LEDGER, "w", encoding="utf-8") as fh:
             json.dump(ledger, fh, ensure_ascii=False)

@@ -1699,10 +1699,11 @@ function renderDay() {
       : gap <= -g ? dayLiveAction("做多", q, tickFloor(q.open * (1 - sl / 100)))
         || `<b class="up">做多</b>：開盤 ${fmt(q.open)} 買進 → 馬上設「跌到 <b class="num">${fmt(tickFloor(q.open * (1 - sl / 100)))}</b> 就賣出」→ 13:25 前賣出`
       : `開盤 ${fmt(q.open)}，沒有開高或開低超過 ${g}% → <b>今天不做</b>`;
-    return `<tr data-code="${p["代號"]}" class="${p["代號"] === state.selected ? "sel" : ""}">
+    const bv = today && ev ? dayBigVerdict(p["代號"], ev.side) : { cls: "", html: "" };
+    return `<tr data-code="${p["代號"]}" class="${p["代號"] === state.selected ? "sel" : ""}"${bv.cls === "bad" ? ' style="opacity:.55"' : ""}>
       <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span></td>
       <td class="num">${fmt(p["收盤"])}</td>
-      <td class="num">${gap == null ? "–" : `${fmt(q.open)}<br><span style="font-size:12px">${pct(gap)}%</span>`}</td><td class="l" style="white-space:normal">${st}</td>
+      <td class="num">${gap == null ? "–" : `${fmt(q.open)}<br><span style="font-size:12px">${pct(gap)}%</span>`}</td><td class="l" style="white-space:normal">${st}${bv.html}</td>
       ${today ? `<td class="num">${q ? fmt(q.price) : "–"}${ev && ev.ret != null ? `<br>${dayRetHtml(ev)}` : ""}</td>` : ""}</tr>`;
   }).join("");
   const v = (x) => `${pct(x.train.avg)}%／${pct(x.test.avg)}%（勝率 ${x.train.win}%／${x.test.win}%）`;
@@ -1772,6 +1773,54 @@ function dayEval(p, q, D) {
     return { side: "做多", stopped, noShort: false, ret: (stopped ? -sl * 100 : (q.price / q.open - 1) * 100) - cost };
   }
   return { side: null, ret: null, stopped: false, noShort: false };
+}
+
+// 大單篩選（使用者朋友的「股漲大單分析」做法）：富果逐筆成交中 ≥ 20 張的大單，買進量 ÷ 賣出量 = 買賣比。
+// 做空：買賣比 ≥ 2（大戶在買）→ 方向相反，建議跳過；≤ 0.5 → 支持。做多反過來。
+// 這個條件沒有經過回測（沒有歷史逐筆資料），從 2026-10-16 起在實際績效分組記錄，累積後再判斷有沒有用。
+const BIG_MIN = 20, BIG_EVERY_MS = 15000;
+const dayBig = { data: {}, i: 0, timer: null };
+
+function dayBigTargets() {
+  const D = state.data && state.data.daytrade;
+  if (!D) return [];
+  const out = [];
+  (dayTodayList() || []).forEach((p) => {
+    const q = dayQuote(p["代號"]);
+    if (q && q.open) { const ev = dayEval(p, q, D); if (ev.side) out.push(p["代號"]); }
+  });
+  dayScan.rows.forEach((x) => { if (!(x.open >= (x.up || Infinity))) out.push(x.code); });
+  return [...new Set(out)];
+}
+
+async function dayBigPoll() {
+  if (state.view !== "day" || document.hidden || !inMarketHours() || !STATIC) return;
+  const codes = dayBigTargets();
+  if (!codes.length) return;
+  const code = codes[dayBig.i++ % codes.length];
+  try {
+    const r = await fetch(`${ALERT_WORKER}bigorders?symbol=${code}&min=${BIG_MIN}`, { cache: "no-store" });
+    const j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || r.status);
+    dayBig.data[code] = { ratio: j.big.ratio, buy: j.big.buyVol, sell: j.big.sellVol, net: j.big.net,
+      buyAvg: j.big.buyAvg, sellAvg: j.big.sellAvg, time: twNow().toTimeString().slice(0, 5) };
+  } catch (e) { /* 富果額度用完或暫時失敗：下一輪再試 */ }
+  if (state.view === "day") renderDay();
+}
+
+// 回傳 {cls: "ok"|"bad"|"", html}：side 為 "做空"/"做多"
+function dayBigVerdict(code, side) {
+  const b = dayBig.data[code];
+  if (!side) return { cls: "", html: "" };
+  if (!b) return { cls: "", html: '<div class="muted" style="font-size:12px;margin-top:3px">大單：讀取中…</div>' };
+  if (!b.buy && !b.sell) return { cls: "", html: `<div class="muted" style="font-size:12px;margin-top:3px">大單：還沒有 ${BIG_MIN} 張以上的成交</div>` };
+  const r = b.ratio == null ? Infinity : b.ratio;
+  const bull = r >= 2, bear = r <= 0.5;
+  const cls = side === "做空" ? (bull ? "bad" : bear ? "ok" : "") : (bull ? "ok" : bear ? "bad" : "");
+  const txt = cls === "bad" ? `<b class="${side === "做空" ? "up" : "down"}">大單方向相反 → 建議跳過</b>`
+    : cls === "ok" ? `<b class="${side === "做空" ? "down" : "up"}">大單支持${side}</b>` : "大單中性";
+  const rng = b.buyAvg && b.sellAvg ? `，大單區間 ${fmt(b.buyAvg)}～${fmt(b.sellAvg)}` : "";
+  return { cls, html: `<div style="font-size:12px;margin-top:3px">${txt}<span class="muted">（≥${BIG_MIN} 張 買 ${fmt(b.buy, 0)}／賣 ${fmt(b.sell, 0)}，買賣比 ${r === Infinity ? "∞" : fmt(r)}${rng}，${b.time}）</span></div>` };
 }
 
 // 開盤後的實際狀況：被拉到漲停／碰到停損／開盤已過，改顯示現在該怎麼做（不再只顯示開盤當下的指示）
@@ -1850,6 +1899,7 @@ async function dayPoll() {
 function dayPollStart() {
   if (dayLive.timer) return;
   dayLive.timer = setInterval(dayPoll, DAY_POLL_MS);
+  dayBig.timer = setInterval(dayBigPoll, BIG_EVERY_MS);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) dayPoll(); });
   dayPoll();
 }
@@ -1892,7 +1942,8 @@ function dayWatchHtml(D) {
 function dayScanHtml(D) {
   const G = D.gap_rule;
   if (!G || (!inMarketHours() && !dayScan.time)) return "";
-  const rows = dayScan.rows.map((x) => {
+  const bad = (x) => dayBigVerdict(x.code, "做空").cls === "bad";
+  const rows = [...dayScan.rows].sort((a, b) => bad(a) - bad(b)).map((x) => {
     const lim = x.up || tickFloor(x.prev * 1.1);
     const gap = (x.open / x.prev - 1) * 100;
     const ev = dayEval({ "收盤": x.prev, "明日漲停": lim }, x, D);
@@ -1900,9 +1951,10 @@ function dayScanHtml(D) {
     const act = ev.noShort ? "開盤就漲停 → <b>不要空</b>"
       : dayLiveAction("做空", { ...x, up: lim }, stopPx)
         || `<b class="down">放空</b>：開盤 ${fmt(x.open)} 先賣 → 設「漲到 <b class="num">${fmt(stopPx)}</b> 就買回」→ 13:25 前買回`;
-    return `<tr data-code="${x.code}"><td class="l"><span class="name">${esc(x.name || x.code)}</span><span class="code num">${x.code}</span></td>
+    const bv = ev.noShort ? { cls: "", html: "" } : dayBigVerdict(x.code, "做空");
+    return `<tr data-code="${x.code}"${bv.cls === "bad" ? ' style="opacity:.55"' : ""}><td class="l"><span class="name">${esc(x.name || x.code)}</span><span class="code num">${x.code}</span></td>
       <td class="num">${fmt(x.prev)}</td><td class="num">${fmt(x.open)}<br><span style="font-size:12px">${pct(gap)}%</span></td>
-      <td class="l" style="white-space:normal">${act}</td>
+      <td class="l" style="white-space:normal">${act}${bv.html}</td>
       <td class="num">${fmt(x.price)}${x.limit === "up" ? '<br><span class="up" style="font-size:12px">漲停</span>' : ""}${ev.ret != null ? `<br>${dayRetHtml(ev)}` : ""}</td></tr>`;
   }).join("");
   const R = G.research;
@@ -1917,7 +1969,9 @@ function dayScanHtml(D) {
         </table>
         ${dayScan.time && !dayScan.rows.length ? `<div class="empty">今天沒有開盤跳空 ≥ ${G.gap}% 的股票。</div>` : ""}
         <div class="muted" style="font-size:12px;padding:8px 12px">${dayScan.time ? `最後掃描 ${dayScan.time}｜` : inMarketHours() ? "掃描中…｜" : ""}9:00 後每 2 分鐘掃描一次 ${(D.pool || []).length} 檔股票，找到的股票每分鐘更新現價。
-          回測是「開盤價進場」；開盤後才看到、價格已經下跌的，晚進場的效果沒有經過驗證。注意：約 ${R.squeeze}% 收盤被拉到漲停（軋空），部位要小</div>
+          回測是「開盤價進場」；開盤後才看到、價格已經下跌的，晚進場的效果沒有經過驗證。注意：約 ${R.squeeze}% 收盤被拉到漲停（軋空），部位要小。<br>
+          <b>大單篩選</b>：≥ ${BIG_MIN} 張大單買賣比 ≥ 2（大戶在買）的放空股會變淡、排到最後，標「建議跳過」；≤ 0.5 標「支持」。每檔約 2～3 分鐘更新一次。
+          這個篩選<b>沒有經過回測</b>（沒有歷史逐筆資料），實際績效分頁會分組記錄，累積後再判斷有沒有用</div>
       </div>
     </div>`;
 }
@@ -2366,7 +2420,11 @@ function renderPerf() {
       <td>${t["日期"]}</td><td class="l">${esc(t["名稱"])} <span class="code num">${t["代號"]}</span></td>
       <td>${t["進場"] == null ? "–" : fmt(t["進場"])}</td><td>${t["出場"] == null ? "–" : fmt(t["出場"])}</td>
       <td class="${t["報酬%"] > 0 ? "up" : t["報酬%"] < 0 ? "down" : ""}">${t["報酬%"] == null ? "–" : pct(t["報酬%"]) + "%"}</td>
-      <td class="l">${t["狀態"]}${t["狀態"] === "持有中" ? `（第 ${t["天數"]} 天）` : ""}</td></tr>`).join("");
+      <td class="l">${t["狀態"]}${t["狀態"] === "持有中" ? `（第 ${t["天數"]} 天）` : ""}${t["大單"] ? `<span class="muted">（大單買賣比 ${t["大單"]}）</span>` : ""}</td></tr>`).join("");
+    // 當沖：依大單買賣比分組（大單篩選的效果，2026-10-16 起記錄）
+    const BB = d.by_big, bigLine = BB ? `<div class="muted" style="font-size:12px;margin-top:4px">大單篩選（≥ 20 張買賣比）：${
+      [["≤0.5", "大戶賣"], ["0.5~2", "中性"], ["≥2", "大戶買"]].map(([g, n]) => BB[g] ? `${n} ${BB[g].n} 筆，平均 ${pct(BB[g].avg)}%、勝率 ${BB[g].win}%` : `${n} 0 筆`).join("｜")
+    }${key.startsWith("daytrade") ? "（放空時「大戶買」就是建議跳過的那組）" : ""}</div>` : "";
     return `<div class="etf-card">
       <h3>${title}</h3>
       <div class="muted" style="font-size:12px">${how}</div>
@@ -2375,7 +2433,7 @@ function renderPerf() {
         <div><div class="k">已出場勝率／平均（已扣成本）</div><div class="v num">${s.win == null ? "–" : s.win + "%"}<small>${val(s.avg)}</small></div></div>
         <div><div class="k">持有中平均（未扣成本）</div><div class="v num">${val(s.open_avg)}<small>${s.open} 筆</small></div></div>
       </div>
-      <div class="muted" style="font-size:12px">回測預期：${expect}</div>
+      <div class="muted" style="font-size:12px">回測預期：${expect}</div>${bigLine}
       ${rows ? `<details class="perf-details"><summary>交易明細（${d.trades.length < s.total ? `最近 ${d.trades.length} 筆，` : ""}共 ${s.total} 筆）</summary>
         <div class="bt-wrap perf-scroll"><table class="bt-table num"><thead><tr><th>選出日</th><th class="l">股票</th><th>進場</th><th>出場／目前</th><th>報酬</th><th class="l">狀態</th></tr></thead><tbody>${rows}</tbody></table></div></details>`
         : `<div class="empty" style="padding:16px">還沒有紀錄。${key === "revenue" ? "下一次換股日開始記錄。" : "每天都會累積。"}</div>`}

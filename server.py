@@ -16,6 +16,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 from urllib.parse import quote as quote_url
 
+import bigorders
 import etf
 import perf
 import revenue
@@ -128,7 +129,14 @@ def run_screen(date_str, min_volume, small_cap, live=True):
     data["overnight_pushed"] = snapshots.pushed_overnight(data["trade_date"])
     try:
         # 存檔後再算，今天的名單也會列為「等待進場」；盤中預覽時今天還沒收盤，需要收盤價的交易不算出場
-        data["perf"] = perf.compute(history, today_final=not (res["live"] and not res["live"]["final"]))
+        final = not (res["live"] and not res["live"]["final"])
+        # 收盤後：記錄今天當沖股票的大單買賣比（bigorders.py），實際績效依此分組
+        if final and trade_date == dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).date() and os.environ.get("GITHUB_ACTIONS"):
+            try:
+                bigorders.record(trade_date.isoformat(), perf.daytrade_codes(history))
+            except Exception as e:
+                print(f"大單紀錄失敗：{e}")
+        data["perf"] = perf.compute(history, today_final=final)
     except Exception as e:
         print(f"實際績效計算失敗：{e}")
         data["perf"] = None
