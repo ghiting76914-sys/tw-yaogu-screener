@@ -1694,8 +1694,10 @@ function renderDay() {
         : !inMarketHours() ? `<span class="muted">9:00 看開盤：</span>${plan}`
         : "讀取開盤價中…")
       : q.open >= p["明日漲停"] ? `開盤 ${fmt(q.open)} 就漲停 → <b>不要賣</b>（鎖住的話可能整天買不回來）`
-      : gap >= g ? `<b class="down">放空</b>：開盤 ${fmt(q.open)} 先賣 → 馬上設「漲到 <b class="num">${fmt(tickCeil(q.open * (1 + sl / 100)))}</b> 就買回」→ 13:25 前買回`
-      : gap <= -g ? `<b class="up">做多</b>：開盤 ${fmt(q.open)} 買進 → 馬上設「跌到 <b class="num">${fmt(tickFloor(q.open * (1 - sl / 100)))}</b> 就賣出」→ 13:25 前賣出`
+      : gap >= g ? dayLiveAction("做空", q, Math.min(tickCeil(q.open * (1 + sl / 100)), p["明日漲停"]))
+        || `<b class="down">放空</b>：開盤 ${fmt(q.open)} 先賣 → 馬上設「漲到 <b class="num">${fmt(tickCeil(q.open * (1 + sl / 100)))}</b> 就買回」→ 13:25 前買回`
+      : gap <= -g ? dayLiveAction("做多", q, tickFloor(q.open * (1 - sl / 100)))
+        || `<b class="up">做多</b>：開盤 ${fmt(q.open)} 買進 → 馬上設「跌到 <b class="num">${fmt(tickFloor(q.open * (1 - sl / 100)))}</b> 就賣出」→ 13:25 前賣出`
       : `開盤 ${fmt(q.open)}，沒有開高或開低超過 ${g}% → <b>今天不做</b>`;
     return `<tr data-code="${p["代號"]}" class="${p["代號"] === state.selected ? "sel" : ""}">
       <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span></td>
@@ -1772,6 +1774,22 @@ function dayEval(p, q, D) {
   return { side: null, ret: null, stopped: false, noShort: false };
 }
 
+// 開盤後的實際狀況：被拉到漲停／碰到停損／開盤已過，改顯示現在該怎麼做（不再只顯示開盤當下的指示）
+function dayLiveAction(side, q, stopPx) {
+  const t = twNow(), m = t.getHours() * 60 + t.getMinutes();
+  const late = m >= 9 * 60 + 10 && inMarketHours();
+  if (side === "做空") {
+    if (q.limit === "up") return `<b class="up">⚠️ 已被拉到漲停</b>：有放空的 → <b>停損買回</b>（掛漲停價 ${fmt(q.up || q.price)} 買進，鎖死時可能買不到，收盤前再試）；還沒放空的 → <b>不要空</b>`;
+    if ((q.high || q.price) >= stopPx - 1e-9) return `<b class="up">已碰到停損價 ${fmt(stopPx)}</b>：有放空的應已買回；還沒放空的 → <b>不要再空</b>`;
+    if (late) return `有放空的：持有中，漲到 <b class="num">${fmt(stopPx)}</b> 停損，否則 13:25 前買回｜<span class="muted">還沒放空的：開盤已過，不建議追空（回測只驗證開盤價進場）</span>`;
+  } else if (side === "做多") {
+    if (q.limit === "down") return `<b class="down">⚠️ 已跌停</b>：有買進的 → <b>停損賣出</b>（鎖死時可能賣不掉）；還沒買的 → <b>不要買</b>`;
+    if ((q.low || q.price) <= stopPx + 1e-9) return `<b class="down">已碰到停損價 ${fmt(stopPx)}</b>：有買進的應已賣出；還沒買的 → <b>不要再買</b>`;
+    if (late) return `有買進的：持有中，跌到 <b class="num">${fmt(stopPx)}</b> 停損，否則 13:25 前賣出｜<span class="muted">還沒買的：開盤已過，不建議追（回測只驗證開盤價進場）</span>`;
+  }
+  return null;
+}
+
 function dayRetHtml(ev) {
   return `<b class="${ev.ret > 0 ? "up" : ev.ret < 0 ? "down" : ""}" style="font-size:12px">${ev.side} ${pct(ev.ret)}%${ev.stopped ? "（已停損）" : ""}</b>`;
 }
@@ -1842,8 +1860,10 @@ function dayScanHtml(D) {
     const lim = x.up || tickFloor(x.prev * 1.1);
     const gap = (x.open / x.prev - 1) * 100;
     const ev = dayEval({ "收盤": x.prev, "明日漲停": lim }, x, D);
+    const stopPx = Math.min(tickCeil(x.open * (1 + D.rules.stop / 100)), lim);
     const act = ev.noShort ? "開盤就漲停 → <b>不要空</b>"
-      : `<b class="down">放空</b>：開盤 ${fmt(x.open)} 先賣 → 設「漲到 <b class="num">${fmt(Math.min(tickCeil(x.open * (1 + D.rules.stop / 100)), lim))}</b> 就買回」→ 13:25 前買回`;
+      : dayLiveAction("做空", { ...x, up: lim }, stopPx)
+        || `<b class="down">放空</b>：開盤 ${fmt(x.open)} 先賣 → 設「漲到 <b class="num">${fmt(stopPx)}</b> 就買回」→ 13:25 前買回`;
     return `<tr data-code="${x.code}"><td class="l"><span class="name">${esc(x.name || x.code)}</span><span class="code num">${x.code}</span></td>
       <td class="num">${fmt(x.prev)}</td><td class="num">${fmt(x.open)}<br><span style="font-size:12px">${pct(gap)}%</span></td>
       <td class="l" style="white-space:normal">${act}</td>
