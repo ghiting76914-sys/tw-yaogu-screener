@@ -1654,12 +1654,13 @@ function renderDay() {
   $("cntDay").textContent = D.list.length;
   const today = dayListIsToday();
   const rows = D.list.map((p) => {
-    const q = today ? alertState.prices[p["代號"]] : null;
+    const q = today ? dayQuote(p["代號"]) : null;
+    const ev = q && q.open ? dayEval(p, q, D) : null;
     const gap = q && q.open ? (q.open / p["收盤"] - 1) * 100 : null;
     const plan = `開盤 ≥ <b class="num">${fmt(p["做空觸發"])}</b> → 先賣（放空）｜開盤 ≤ <b class="num">${fmt(p["做多觸發"])}</b> → 買進｜中間 → 不做`;
     const st = gap == null ? (!today ? `<span class="muted">明天 9:00 看開盤：</span>${plan}`
         : !inMarketHours() ? `<span class="muted">9:00 看開盤：</span>${plan}`
-        : alertOn() ? "讀取開盤價中…" : plan)
+        : "讀取開盤價中…")
       : q.open >= p["明日漲停"] ? `開盤 ${fmt(q.open)} 就漲停 → <b>不要賣</b>（鎖住的話可能整天買不回來）`
       : gap >= g ? `<b class="down">放空</b>：開盤 ${fmt(q.open)} 先賣 → 馬上設「漲到 <b class="num">${fmt(tickCeil(q.open * (1 + sl / 100)))}</b> 就買回」→ 13:25 前買回`
       : gap <= -g ? `<b class="up">做多</b>：開盤 ${fmt(q.open)} 買進 → 馬上設「跌到 <b class="num">${fmt(tickFloor(q.open * (1 - sl / 100)))}</b> 就賣出」→ 13:25 前賣出`
@@ -1667,7 +1668,8 @@ function renderDay() {
     return `<tr data-code="${p["代號"]}" class="${p["代號"] === state.selected ? "sel" : ""}">
       <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span></td>
       <td class="num">${fmt(p["收盤"])}</td>
-      <td class="num">${gap == null ? "–" : `${fmt(q.open)}<br><span style="font-size:12px">${pct(gap)}%</span>`}</td><td class="l" style="white-space:normal">${st}</td></tr>`;
+      <td class="num">${gap == null ? "–" : `${fmt(q.open)}<br><span style="font-size:12px">${pct(gap)}%</span>`}</td><td class="l" style="white-space:normal">${st}</td>
+      ${today ? `<td class="num">${q ? fmt(q.price) : "–"}${ev && ev.ret != null ? `<br>${dayRetHtml(ev)}` : ""}</td>` : ""}</tr>`;
   }).join("");
   const v = (x) => `${pct(x.train.avg)}%／${pct(x.test.avg)}%（勝率 ${x.train.win}%／${x.test.win}%）`;
   $("dayView").innerHTML = `
@@ -1702,21 +1704,100 @@ function renderDay() {
     <div class="card" style="margin-top:12px">
       <div class="table-wrap" style="max-height:none">
         <table>
-          <thead><tr><th class="l">股票</th><th>昨收（漲停）</th><th>今天開盤</th><th class="l">要做什麼${today && inMarketHours() && !alertOn() ? '<span class="muted" style="font-weight:400">（開啟右上角 🔔 盤中提醒，才會顯示開盤價和實際動作）</span>' : ""}</th></tr></thead>
+          <thead><tr><th class="l">股票</th><th>昨收（漲停）</th><th>今天開盤</th><th class="l">要做什麼</th>${today ? "<th>現價／目前損益</th>" : ""}</tr></thead>
           <tbody>${rows}</tbody>
         </table>
         ${D.list.length ? "" : `<div class="empty">沒有符合條件的股票（前一天沒有均量 1,000 張以上、收盤鎖漲停的股票）。</div>`}
+        ${today ? dayLiveNote() : ""}
       </div>
     </div>${dayPrevHtml(D)}`;
+  dayPollStart();
+}
+
+// 當沖名單盤中自動更新：在當沖分頁時，9:00～13:30 每分鐘查一次名單上所有股票的即時價（不用開 🔔 盤中提醒）
+const DAY_POLL_MS = 60000;
+const dayLive = { prices: {}, time: null, error: null, timer: null, busy: false };
+
+function dayQuote(code) {
+  return dayLive.prices[code] || alertState.prices[code] || null;
+}
+
+// 與 strategy.daytrade_result 相同：依開盤決定方向，碰到停損就以 -停損% 計，否則以現價（收盤後為收盤價）計，已扣成本
+function dayEval(p, q, D) {
+  const g = D.rules.gap, sl = D.rules.stop / 100, cost = D.rules.cost;
+  const gap = (q.open / p["收盤"] - 1) * 100, hi = q.high || q.price, lo = q.low || q.price;
+  if (gap >= g) {
+    if (q.open >= p["明日漲停"] - 1e-9) return { side: null, ret: null, stopped: false, noShort: true };
+    const stopped = hi >= q.open * (1 + sl) - 1e-9;
+    return { side: "做空", stopped, noShort: false, ret: (stopped ? -sl * 100 : (q.open / q.price - 1) * 100) - cost };
+  }
+  if (gap <= -g) {
+    const stopped = lo <= q.open * (1 - sl) + 1e-9;
+    return { side: "做多", stopped, noShort: false, ret: (stopped ? -sl * 100 : (q.price / q.open - 1) * 100) - cost };
+  }
+  return { side: null, ret: null, stopped: false, noShort: false };
+}
+
+function dayRetHtml(ev) {
+  return `<b class="${ev.ret > 0 ? "up" : ev.ret < 0 ? "down" : ""}" style="font-size:12px">${ev.side} ${pct(ev.ret)}%${ev.stopped ? "（已停損）" : ""}</b>`;
+}
+
+function dayLiveNote() {
+  const t = dayLive.time ? `最後更新 ${dayLive.time}` : "";
+  return `<div class="muted" style="font-size:12px;padding:8px 12px">${inMarketHours()
+    ? `盤中每 1 分鐘自動更新即時價（即時價約延遲 30 秒）${t ? `｜${t}` : ""}${dayLive.error ? `｜<span class="down">${esc(dayLive.error)}，稍後重試</span>` : ""}`
+    : t ? `${t}（收盤後不再更新）` : "9:00～13:30 打開這個分頁，會每 1 分鐘自動更新即時價"}</div>`;
+}
+
+// 今天要做的那份名單：12:30 前是上面的表格，12:30 盤中更新後移到下面「前一天的名單」
+function dayTodayList() {
+  const d = state.data, D = d && d.daytrade;
+  if (!D) return [];
+  if (dayListIsToday()) return D.list;
+  return D.previous && D.previous.trade === twDay(twNow()) ? D.previous.list : [];
+}
+
+async function dayPoll() {
+  if (dayLive.busy || state.view !== "day" || document.hidden || !inMarketHours()) return;
+  const list = dayTodayList();
+  if (!list.length) return;
+  dayLive.busy = true;
+  try {
+    const out = {};
+    for (let i = 0; i < list.length; i += 40) Object.assign(out, await alertFetch(list.slice(i, i + 40).map((p) => p["代號"])));
+    Object.assign(dayLive.prices, out);
+    dayLive.time = twNow().toTimeString().slice(0, 5);
+    dayLive.error = null;
+  } catch (e) {
+    dayLive.error = alertErrorText(e);
+  } finally {
+    dayLive.busy = false;
+  }
+  if (state.view === "day") renderDay();
+}
+
+function dayPollStart() {
+  if (dayLive.timer) return;
+  dayLive.timer = setInterval(dayPoll, DAY_POLL_MS);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) dayPoll(); });
+  dayPoll();
 }
 
 // 前一份名單：上一個交易日收盤鎖漲停的股票，以及隔天實際的開盤、方向與結果（盤中時是以現價計算的暫時損益）
 function dayPrevHtml(D) {
   const P = D.previous;
   if (!P) return "";
-  const d = state.data, live = d.live && !d.live.final && P.trade === d.trade_date;
-  const md = (x) => x.slice(5).replace("-", "/");
-  const rows = P.list.map((p) => {
+  const d = state.data, md = (x) => x.slice(5).replace("-", "/");
+  const tracking = P.trade === twDay(twNow()) && !dayListIsToday();  // 這份就是今天要做的名單：用即時報價更新
+  const live = tracking ? Object.keys(dayLive.prices).length > 0 || (d.live && !d.live.final) : false;
+  const list = P.list.map((p) => {
+    const q = tracking ? dayQuote(p["代號"]) : null;
+    if (!q || !q.open) return p;
+    const ev = dayEval(p, q, D);
+    return { ...p, "開盤": q.open, "跳空%": (q.open / p["收盤"] - 1) * 100, "收盤今": q.price, "方向": ev.side, "報酬%": ev.ret,
+      "停損": ev.stopped, "開盤漲停": ev.noShort };
+  });
+  const rows = list.map((p) => {
     const act = p["開盤"] == null ? '<span class="muted">沒有開盤資料</span>'
       : p["開盤漲停"] && p["跳空%"] > 0 ? "開盤就漲停 → 不空"
       : p["方向"] === "做空" ? `<b class="down">放空</b>${p["停損"] ? "（碰到停損買回）" : live ? "（持有中）" : "（收盤買回）"}`
@@ -1731,18 +1812,19 @@ function dayPrevHtml(D) {
       <td class="l" style="white-space:normal">${act}</td>
       <td class="num">${r == null ? "–" : `<b class="${r > 0 ? "up" : r < 0 ? "down" : ""}">${pct(r)}%</b>`}</td></tr>`;
   }).join("");
-  const done = P.list.filter((p) => p["報酬%"] != null);
+  const done = list.filter((p) => p["報酬%"] != null);
   const sum = done.length ? `，有交易 ${done.length} 檔、平均 ${pct(done.reduce((a, p) => a + p["報酬%"], 0) / done.length)}%` : "，沒有符合跳空條件的交易";
   return `
     <div class="card" style="margin-top:12px">
       <div class="banner-head" style="padding:12px 14px 4px"><h3 style="margin:0;font-size:15px">前一天的名單</h3>
-        <span class="sub">${md(P.date)} 收盤鎖漲停 → ${md(P.trade)} 當沖${live ? `（盤中 ${(d.live.time || "").slice(0, 5)}，結果以現價暫算）` : ""}${P.list.length ? sum : ""}</span></div>
+        <span class="sub">${md(P.date)} 收盤鎖漲停 → ${md(P.trade)} 當沖${tracking ? "（今天的名單，結果以現價暫算）" : ""}${P.list.length ? sum : ""}</span></div>
       <div class="table-wrap" style="max-height:none">
         <table>
           <thead><tr><th class="l">股票</th><th>${md(P.date)} 收盤</th><th>${md(P.trade)} 開盤</th><th>${live ? "現價" : "收盤"}</th><th class="l">結果</th><th>報酬（已扣成本）</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
         ${P.list.length ? "" : `<div class="empty">${md(P.date)} 沒有符合條件的股票。</div>`}
+        ${tracking ? dayLiveNote() : ""}
       </div>
     </div>`;
 }
@@ -2654,6 +2736,7 @@ function setView(v) {
   if (v === "hold") { renderHold(); refreshHoldPrices().then(renderHold); showEmptyDetail(); return; }
   if (v === "etf") { renderEtfDetail(); return; }
   if (v === "perf") { showEmptyDetail(); return; }
+  if (v === "day") dayPoll();
   const list = listFor(v);
   // 從 ETF 專區切回來時，右側要換回個股明細
   if (list && list.length) select(list.some((x) => x["代號"] === state.selected) ? state.selected : list[0]["代號"]);
