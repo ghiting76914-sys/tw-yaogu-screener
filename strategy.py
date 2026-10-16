@@ -846,6 +846,13 @@ DAYTRADE_RESEARCH = {
 }
 
 
+# 今天就能掃的當沖：任何流動股（20 日均量 ≥ 1000 張、股價 ≥ 10）開盤跳空 ≥ 5% 且開盤沒漲停 → 開盤價放空、收盤買回
+# （回測：開高 5%～漲停前，已扣成本；開高 3～5% 平均只有 +0.1～0.2%，不做）
+DAYTRADE_GAP = {"gap": 5.0, "research": {
+    "period": "2015/04～2026/10", "train": {"avg": 0.95, "win": 47.9}, "test": {"avg": 0.88, "win": 46.2},
+    "recent": {"avg": 0.79, "win": 45.0}, "per_day": 8, "squeeze": 31}}
+
+
 def daytrade_watch(history, ref=None, t=None):
     """今天（或第 t 天）收盤鎖漲停、20 日均量 ≥ 1000 張的一般股：明天的當沖觀察名單與觸發價。"""
     series = build_series(history)

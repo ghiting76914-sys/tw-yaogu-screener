@@ -115,7 +115,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             # 盤中：推播後才符合條件的股票（回測規則同樣成立，但未推播、不計入績效）
             "overnight_new": [p for p in overnight_live if p["代號"] not in {x["代號"] for x in overnight}]
             if overnight_fixed and overnight_fixed["kind"] == "pushed" else [], "overnight_backtest": _backtests[bt_key][2],
-            "daytrade": {"list": daytrade, "previous": daytrade_prev, "pool": daytrade_pool, "rules": strategy.DAYTRADE, "research": strategy.DAYTRADE_RESEARCH},
+            "daytrade": {"list": daytrade, "previous": daytrade_prev, "pool": daytrade_pool, "gap_rule": strategy.DAYTRADE_GAP, "rules": strategy.DAYTRADE, "research": strategy.DAYTRADE_RESEARCH},
             "panic": panic,
             "overnight_research": strategy.OVERNIGHT_RESEARCH, "previous": previous,
             "pivot_stats": _backtests[bt_key][3]}

@@ -1766,22 +1766,27 @@ async function dayPoll() {
   if (dayLive.busy || state.view !== "day" || document.hidden || !inMarketHours()) return;
   const list = dayTodayList() || [];
   const pool = (state.data.daytrade.pool || []).filter(([c]) => !list.some((p) => p["代號"] === c));
+  const G = state.data.daytrade.gap_rule;
   dayLive.busy = true;
   try {
+    const codes = [...list.map((p) => p["代號"]), ...dayScan.rows.map((x) => x.code)];
     const out = {};
-    for (let i = 0; i < list.length; i += 40) Object.assign(out, await alertFetch(list.slice(i, i + 40).map((p) => p["代號"])));
-    // 明天候選：股票池每 2 分鐘掃一次（每次 80 檔，約 8 次請求）
-    if (pool.length && (!dayScan.at || Date.now() - dayScan.at >= DAY_SCAN_MS - 5000)) {
+    for (let i = 0; i < codes.length; i += 40) Object.assign(out, await alertFetch(codes.slice(i, i + 40)));
+    // 今天開盤跳空 ≥ 5%：全部股票池每 2 分鐘掃一次（每次 80 檔，約 8 次請求），找到的股票之後每分鐘更新
+    if (G && pool.length && (!dayScan.at || Date.now() - dayScan.at >= DAY_SCAN_MS - 5000)) {
       const found = [];
       for (let i = 0; i < pool.length; i += 80) {
         const part = pool.slice(i, i + 80);
         const q = await alertFetchOnce(part.map(([c]) => c), part.map(([c, m]) => `${m}_${c}.tw`).join("|"));
-        for (const [c, x] of Object.entries(q)) if (x.prev && x.price / x.prev - 1 >= 0.07) found.push({ code: c, ...x });
+        for (const [c, x] of Object.entries(q)) {
+          if (x.open && x.prev && x.open / x.prev - 1 >= G.gap / 100 - 1e-9) found.push({ code: c, ...x });
+        }
       }
-      dayScan.rows = found.sort((a, b) => (b.limit === "up") - (a.limit === "up") || b.price / b.prev - a.price / a.prev);
+      dayScan.rows = found.sort((a, b) => b.open / b.prev - a.open / a.prev);
       dayScan.at = Date.now();
       dayScan.time = twNow().toTimeString().slice(0, 5);
     }
+    dayScan.rows = dayScan.rows.map((x) => (out[x.code] ? { ...x, ...out[x.code] } : x));
     Object.assign(dayLive.prices, out);
     dayLive.time = twNow().toTimeString().slice(0, 5);
     dayLive.error = null;
@@ -1800,27 +1805,34 @@ function dayPollStart() {
   dayPoll();
 }
 
-// 明天候選（盤中即時）：股票池（20 日均量 ≥ 1,000 張、股價 ≥ 10 元）中目前漲 ≥ 7% 的股票；收盤仍鎖漲停才會進明天的名單
+// 今天開盤跳空 ≥ 5% 的股票（全市場掃描，research/daytrade.py）：開盤價放空、收盤前買回；開盤就漲停的不空
 function dayScanHtml(D) {
-  if (!inMarketHours() && !dayScan.time) return "";
+  const G = D.gap_rule;
+  if (!G || (!inMarketHours() && !dayScan.time)) return "";
   const rows = dayScan.rows.map((x) => {
-    const p = (x.price / x.prev - 1) * 100;
-    const st = x.limit === "up" ? '<b class="up">鎖漲停中</b>' : `<span class="muted">還沒漲停（漲停價 ${fmt(tickFloor(x.prev * 1.1))}）</span>`;
+    const lim = x.up || tickFloor(x.prev * 1.1);
+    const gap = (x.open / x.prev - 1) * 100;
+    const ev = dayEval({ "收盤": x.prev, "明日漲停": lim }, x, D);
+    const act = ev.noShort ? "開盤就漲停 → <b>不要空</b>"
+      : `<b class="down">放空</b>：開盤 ${fmt(x.open)} 先賣 → 設「漲到 <b class="num">${fmt(Math.min(tickCeil(x.open * (1 + D.rules.stop / 100)), lim))}</b> 就買回」→ 13:25 前買回`;
     return `<tr data-code="${x.code}"><td class="l"><span class="name">${esc(x.name || x.code)}</span><span class="code num">${x.code}</span></td>
-      <td class="num">${fmt(x.price)}</td><td class="num"><b class="up">${pct(p)}%</b></td><td class="l">${st}</td></tr>`;
+      <td class="num">${fmt(x.prev)}</td><td class="num">${fmt(x.open)}<br><span style="font-size:12px">${pct(gap)}%</span></td>
+      <td class="l" style="white-space:normal">${act}</td>
+      <td class="num">${fmt(x.price)}${x.limit === "up" ? '<br><span class="up" style="font-size:12px">漲停</span>' : ""}${ev.ret != null ? `<br>${dayRetHtml(ev)}` : ""}</td></tr>`;
   }).join("");
-  const locked = dayScan.rows.filter((x) => x.limit === "up").length;
+  const R = G.research;
   return `
     <div class="card" style="margin-top:12px">
-      <div class="banner-head" style="padding:12px 14px 4px"><h3 style="margin:0;font-size:15px">明天的候選（即時）</h3>
-        <span class="sub">目前鎖漲停 ${locked} 檔；收盤仍鎖漲停的才會進明天名單（收盤後確認）</span></div>
+      <div class="banner-head" style="padding:12px 14px 4px"><h3 style="margin:0;font-size:15px">今天開盤跳空 ≥ ${G.gap}%（全市場即時掃描）</h3>
+        <span class="sub">均量 1,000 張以上的股票，開盤漲 ≥ ${G.gap}%（沒漲停）→ 開盤價放空、收盤前買回。11 年回測平均 ${pct(R.train.avg)}%／${pct(R.test.avg)}%，近半年 ${pct(R.recent.avg)}%，勝率約 ${Math.round(R.test.win)}%，平均每天 ${R.per_day} 檔</span></div>
       <div class="table-wrap" style="max-height:none">
         <table>
-          <thead><tr><th class="l">股票</th><th>現價</th><th>漲跌</th><th class="l">狀態</th></tr></thead>
+          <thead><tr><th class="l">股票</th><th>昨收</th><th>今天開盤</th><th class="l">要做什麼</th><th>現價／目前損益</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        ${dayScan.time && !dayScan.rows.length ? '<div class="empty">目前沒有漲 7% 以上的股票。</div>' : ""}
-        <div class="muted" style="font-size:12px;padding:8px 12px">${dayScan.time ? `最後掃描 ${dayScan.time}，` : "掃描中…"}盤中每 2 分鐘掃描一次均量 1,000 張以上的 ${(D.pool || []).length} 檔股票，列出漲 7% 以上的</div>
+        ${dayScan.time && !dayScan.rows.length ? `<div class="empty">今天沒有開盤跳空 ≥ ${G.gap}% 的股票。</div>` : ""}
+        <div class="muted" style="font-size:12px;padding:8px 12px">${dayScan.time ? `最後掃描 ${dayScan.time}｜` : inMarketHours() ? "掃描中…｜" : ""}9:00 後每 2 分鐘掃描一次 ${(D.pool || []).length} 檔股票，找到的股票每分鐘更新現價。
+          回測是「開盤價進場」；開盤後才看到、價格已經下跌的，晚進場的效果沒有經過驗證。注意：約 ${R.squeeze}% 收盤被拉到漲停（軋空），部位要小</div>
       </div>
     </div>`;
 }
@@ -1937,7 +1949,7 @@ async function alertFetchOnce(codes, exGiven) {
     const up = parseFloat(r.u), dn = parseFloat(r.w);
     const op = parseFloat(r.o);
     const num_ = (k) => { const v = parseFloat(r[k]); return v > 0 ? v : null; };
-    if (p > 0) out[r.c] = { name: r.n, price: p, open: op > 0 ? op : null, time: r.t, prev: num_("y"), high: num_("h"), low: num_("l"),
+    if (p > 0) out[r.c] = { name: r.n, price: p, up: up > 0 ? up : null, open: op > 0 ? op : null, time: r.t, prev: num_("y"), high: num_("h"), low: num_("l"),
       vol: parseFloat(r.v) || null, traded: parseFloat(r.z) > 0,
       limit: up > 0 && p >= up - 1e-9 ? "up" : dn > 0 && p <= dn + 1e-9 ? "down" : null };
   }
