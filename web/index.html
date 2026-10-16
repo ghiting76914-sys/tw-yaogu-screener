@@ -1910,7 +1910,7 @@ function dayWatchHtml(D) {
   if (!all.length) return "";
   const chg = (x) => (x.price / x.prev - 1) * 100;
   const fromOpen = (x) => (x.open ? (x.price / x.open - 1) * 100 : null);
-  const strong = [...all].sort((a, b) => chg(b) - chg(a)).slice(0, 10);
+  const strong = all.filter((x) => !x.limit).sort((a, b) => chg(b) - chg(a)).slice(0, 10);  // 漲停、跌停的買不到也賣不掉，不列
   const fade = all.filter((x) => x.open && x.open / x.prev - 1 >= 0.03 && x.price < x.open).sort((a, b) => fromOpen(a) - fromOpen(b)).slice(0, 10);
   const rebound = all.filter((x) => x.open && x.open / x.prev - 1 <= -0.03 && x.price > x.open).sort((a, b) => fromOpen(b) - fromOpen(a)).slice(0, 10);
   const table = (title, sub, rows) => `
@@ -1930,7 +1930,7 @@ function dayWatchHtml(D) {
       <div class="banner-head" style="padding:12px 14px 4px"><h3 style="margin:0;font-size:15px">👀 盤中觀察區</h3>
         <span class="sub">盤中會一直變動的即時排行（均量 1,000 張以上的 ${(D.pool || []).length} 檔），<b>沒有經過回測，只供觀察，不是買賣建議</b></span></div>
       <div class="table-wrap" style="max-height:none;display:flex;flex-wrap:wrap;gap:16px;padding:4px 12px 8px">
-        ${table("🔥 目前漲幅最大", "前 10 名", strong)}
+        ${table("🔥 目前漲幅最大", "前 10 名（不含漲停、跌停）", strong)}
         ${table("📉 開高走低", "開盤漲 ≥ 3%、現價已跌破開盤價（離開盤跌最多的排前面）", fade)}
         ${table("📈 開低走高", "開盤跌 ≤ -3%、現價已站上開盤價（離開盤漲最多的排前面）", rebound)}
       </div>
