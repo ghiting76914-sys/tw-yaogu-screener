@@ -115,6 +115,8 @@ def compute(history, today_final=True, big=True):
 
     top3, overnight, overnight_limit, rev, daytrade, overnight_rec, panic = [], [], [], [], [], [], []
     radar_star, day_gap = [], []
+    # 精選 3 檔：同一檔還在持有中又再次入選時不重複買（2026-10-21 起的規則，套用到全部紀錄）
+    top3_hold, top3_dup = {}, set()   # 代號 → (出場日索引或 None＝持有中, 第一次選出日)
     # 當沖：開盤跳空 ≥ 5% 放空（strategy.DAYTRADE_GAP）。名單完全由行情決定（前一天均量 ≥ 1000 張、股價 ≥ 10），直接用行情計算
     for i in range(max(21, idx.get(GAP_FROM, n)), n):
         for code in history[i][1]:
@@ -144,8 +146,15 @@ def compute(history, today_final=True, big=True):
         if s["mode"] == "final":
             for p in s.get("top3") or []:
                 t = hold_trade(d, p["代號"], p["名稱"], 20, stop=0.10, at_close=d >= TOP3_CLOSE_FROM)
-                if t:
-                    top3.append(t)
+                if not t:
+                    continue
+                i = idx.get(d)
+                held = top3_hold.get(p["代號"])
+                if held and (held[0] is None or held[0] > i):
+                    top3_dup.add(f"{d}|{p['代號']}|{p['名稱']}")
+                    continue
+                top3.append(t)
+                top3_hold[p["代號"]] = (i + t["天數"] if t["狀態"] == "已出場" else None, d)
             # 當沖觀察：隔天依開盤方向，開盤進、收盤出（停損 5%）；沒有跳空 3% 的不交易
             i = idx.get(d)
             for p in s.get("daytrade") or []:
@@ -218,6 +227,9 @@ def compute(history, today_final=True, big=True):
                         ("revenue", rev), ("daytrade", daytrade), ("panic", panic),
                         ("radar_star", radar_star), ("daytrade_gap", day_gap)):
         book = ledger.setdefault(key, {})
+        if key == "top3":
+            for k in top3_dup:
+                book.pop(k, None)  # 規則改成不重複買之前記下的重複交易
         tkey = lambda x: f"{x['日期']}|{x['代號']}|{x['名稱']}"  # noqa: E731
         seen = {tkey(x) for x in trades}
         for x in trades:
@@ -233,5 +245,6 @@ def compute(history, today_final=True, big=True):
             json.dump(ledger, fh, ensure_ascii=False)
     except OSError as e:
         print(f"已出場帳本寫入失敗：{e}")
+    out["top3_holding"] = {c: h[1] for c, h in top3_hold.items() if h[0] is None}
     out["since"] = min((s["trade_date"] for s in _snaps()), default=None)
     return out

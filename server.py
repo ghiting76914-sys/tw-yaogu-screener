@@ -137,6 +137,12 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             except Exception as e:
                 print(f"大單紀錄失敗：{e}")
         data["perf"] = perf.compute(history, today_final=final)
+        # 精選 3 檔：已經在持有中的（之前入選、還沒出場）標示，不用重複買
+        holding = (data["perf"] or {}).get("top3_holding") or {}
+        for p in ((data.get("revenue") or {}).get("top3") or {}).get("picks", []):
+            first = holding.get(p["代號"])
+            if first and first < data["revenue"]["top3"]["date"]:
+                p["已持有"] = first
     except Exception as e:
         print(f"實際績效計算失敗：{e}")
         data["perf"] = None

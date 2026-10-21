@@ -155,10 +155,11 @@ def top3_bubble(data):
         rows += [
             {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
                 text(f"#{p['排名']}", size="sm", weight="bold", color=UP, flex=1),
-                text(f"{p['名稱']} {p['代號']}", size="md", weight="bold", color=INK, flex=6),
+                text(f"{p['名稱']} {p['代號']}" + ("（已持有）" if p.get("已持有") else ""), size="md", weight="bold", color=INK, flex=6),
                 text(f"{p['收盤']:g}", size="sm", color=INK, flex=3, align="end"),
             ]},
-            text(" · ".join(p["理由"][:2]), size="xxs", color=MUTED, wrap=True),
+            text(f"{p['已持有'][5:].replace('-', '/')} 已入選、還在持有期，不用再買" if p.get("已持有")
+                 else " · ".join(p["理由"][:2]), size="xxs", color=MUTED, wrap=True),
         ]
     tr, te = R.get("train", {}), R.get("test", {})
     cb = R.get("close_buy") or {}
@@ -419,8 +420,8 @@ def build_overnight_flex(data):
             text("漲停" if p["已漲停"] else "—", size="xxs", color=ACCENT if p["已漲停"] else MUTED, flex=2, align="end"),
         ]})
     body = [
-        text("收盤前買進。明天兩種賣法擇一：① 開盤直接賣（平均賺最多）；② 掛「+2%賣」價格的限價單，"
-             "沒成交就收盤前賣（勝率約 62%，但平均較少）。已漲停的委買排隊中，可能買不到。"
+        text("收盤前買進。明天掛「+2%賣」價格的限價單，盤中碰到就成交、沒成交收盤前賣"
+             "（2026/10 起實際紀錄勝率約 75%，比開盤直接賣穩定；開盤直接賣可當備案）。已漲停的委買排隊中，可能買不到。"
              "⭐推薦＝強勢條件＋族群齊漲（同族群另有 ≥3 檔漲 5%），11 年回測平均 +1.1%、勝率 57%，其他約 -0.2%，資金有限時只買 ⭐；"
              "已漲停的排最後，排隊買到的多半是會被打開的，不建議追。", size="xs", color=MUTED, wrap=True),
         {"type": "separator"},
@@ -446,7 +447,7 @@ def build_overnight_flex(data):
         "type": "bubble", "size": "giga",
         "header": {"type": "box", "layout": "vertical", "backgroundColor": INK, "paddingAll": "16px", "spacing": "xs",
                    "contents": [text(f"隔日沖候選 · {data['trade_date'][5:].replace('-', '/')} {hhmm} 盤中", size="xxs", color="#BDB8AE"),
-                                text("⚡ 收盤前買、明天開盤賣", size="lg", weight="bold", color="#FFFFFF"),
+                                text("⚡ 收盤前買、明天掛 +2% 限價賣", size="lg", weight="bold", color="#FFFFFF"),
                                 text("盤中漲到 +7% 以上、接近或突破 60 日高", size="xs", color="#FDBA74")]},
         "body": {"type": "box", "layout": "vertical", "spacing": "sm", "paddingAll": "16px", "contents": body},
         "footer": {"type": "box", "layout": "vertical", "paddingAll": "12px", "contents": [
@@ -459,7 +460,7 @@ def build_overnight_text(data):
     picks = data.get("overnight") or []
     hhmm = ((data.get("live") or {}).get("time") or "")[:5]
     lines = [f"⚡ 隔日沖候選｜{data['trade_date']} {hhmm} 盤中",
-             "收盤前買進；明天開盤賣，或掛「+2%賣」限價、沒成交收盤賣。", ""]
+             "收盤前買進；明天掛「+2%賣」限價，沒成交收盤前賣（開盤直接賣為備案）。", ""]
     lines += [f"{i}. {'⭐' if p.get('推薦') else ''}{p['名稱']} {p['代號']}  {p['漲跌%']:+.1f}%  現價 {p['現價']:g}"
               f"{'  +2%賣 ' + format(p['限價賣出'], 'g') if p.get('限價賣出') else ''}{'（已漲停）' if p['已漲停'] else ''}"
               for i, p in enumerate(picks, 1)] or ["目前沒有符合條件的股票。"]

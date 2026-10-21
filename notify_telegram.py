@@ -41,7 +41,7 @@ def overnight_msg(data):
     hhmm = ((data.get("live") or {}).get("time") or "")[:5]
     R = data.get("overnight_research") or {}
     lines = [f"⚡ <b>隔日沖候選</b>｜{data['trade_date'][5:].replace('-', '/')} {hhmm} 盤中",
-             "收盤前買進；明天開盤賣，或掛「+2%賣」限價、沒成交收盤前賣。", ""]
+             "收盤前買進；明天掛「+2%賣」限價，盤中碰到就賣、沒成交收盤前賣（開盤直接賣為備案）。", ""]
     for i, p in enumerate(picks, 1):
         star = "⭐" if p.get("推薦") else ""
         lim = f"｜+2%賣 {p['限價賣出']:g}" if p.get("限價賣出") else ""
@@ -73,6 +73,10 @@ def close_msg(data):
                   else "明天開盤買進。",
                   f"持有 {T.get('hold', 20)} 個交易日，跌破進場價 -{T.get('stop', 10)}% 停損。", ""]
         for p in T["picks"]:
+            if p.get("已持有"):
+                lines.append(f"#{p['排名']} <b>{e(p['名稱'])}</b> {p['代號']}  收 {p['收盤']:g}"
+                             f"（已持有：{p['已持有'][5:].replace('-', '/')} 已入選、還在持有期，不用再買）")
+                continue
             lines.append(f"#{p['排名']} <b>{e(p['名稱'])}</b> {p['代號']}  收 {p['收盤']:g}（{p['漲跌%']:+.2f}%）"
                          f"  營收年增 {p['營收年增%']:+.0f}%  停損約 {p['停損參考']:g}")
         lines.append("")

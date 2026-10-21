@@ -1065,7 +1065,7 @@ function searchVerdict(x) {
   if (tags.has("top3")) return { cls: "good", lv: `建議買進（${searchData.date === twDay(twNow()) ? "今日" : searchData.date.slice(5).replace("-", "/") + " "}精選 3 檔）`, why: "營收創 12 個月新高、年增 > 20%、站上季線，今天收盤突破 60 日新高，成交值前 3。11 年回測（收盤價買、停損 -10%、持有 20 天）每筆平均 +3.2%～+3.7%。", swing: true };
   if (revOk && above60 && brk && liquid) return { cls: "good", lv: "符合精選條件", why: "條件都符合，只是成交值沒有排進前 3。同樣適用精選 3 檔的買法與停損。", swing: true };
   if (revOk && above60) return { cls: "good", lv: "偏多：符合營收動能", why: "營收創 12 個月新高、年增 > 20%、站上季線。這類股票 11 年回測 137 個月中 90 個月贏過大盤；" + (brk ? "" : "還沒突破 60 日高，可等突破或拉回月線再買。"), swing: true };
-  if (tags.has("rec")) return { cls: "good", lv: "短線：今日隔日沖 ⭐推薦", why: "收盤前買、明天開盤賣。近 12 個月回測每筆平均 +1.2%。中長期則沒有符合的條件。", swing: false };
+  if (tags.has("rec")) return { cls: "good", lv: "短線：今日隔日沖 ⭐推薦", why: "收盤前買、明天掛 +2% 限價賣（沒成交收盤前賣）。近 12 個月回測每筆平均 +1.2%。中長期則沒有符合的條件。", swing: false };
   if (tags.has("day")) return { cls: "", lv: "短線：明天當沖觀察", why: "今天收盤鎖漲停。明天開盤漲 ≥ 3%（未漲停）可放空、跌 ≥ 3% 可做多，停損 5%、收盤前出場。", swing: false };
   if (f && f.yoy < 0 && !above60) return { cls: "bad", lv: "不建議", why: "營收年減、股價也在季線下，基本面與趨勢都偏弱。", swing: false };
   if (!above60 && x.ma60 != null) return { cls: "bad", lv: "觀望（跌破季線）", why: "股價在季線之下，趨勢偏弱；回測中站上季線是營收動能的必要條件。", swing: false };
@@ -1302,7 +1302,7 @@ async function pollBig() {
     const hi60 = Math.max(x.hi60, x.h || 0), high = q && q.high, open = q && q.open;
     const overnight = !!(high && open && high / prev >= 1.07 && open / prev < 1.07 && high >= hi60 * 0.98 && q.vol >= 1000 && price >= 10);
     const star = overnight && ((x.quiet && vr >= 2 && x.v20 >= 500) || (vr != null && vr < 2 && high > hi60));
-    const ours = star ? ["good", "符合隔日沖 ⭐ 推薦", "建議改成收盤前買、明天開盤賣：近 12 個月回測每筆平均 +1.2%；當天買當天賣（當沖做多）在 11 年回測整體是虧的。"]
+    const ours = star ? ["good", "符合隔日沖 ⭐ 推薦", "建議改成收盤前買、明天掛 +2% 限價賣：近 12 個月回測每筆平均 +1.2%；當天買當天賣（當沖做多）在 11 年回測整體是虧的。"]
       : overnight ? ["", "符合隔日沖條件，但不是 ⭐", "回測這類股票隔天開盤賣平均約 0%，優勢不大。"]
       : ["", "不符合隔日沖條件", chg != null && chg < 7 ? "今天漲幅還沒到 +7%。" : "今天的走勢不符合（需盤中漲到 +7%、開盤未到 +7%、接近 60 日高、量 ≥ 1,000 張）。"];
     const yes = (b) => b == null ? '<span class="n">–</span>' : b ? '<span class="y">✓</span>' : '<span class="x">✗</span>';
@@ -1544,7 +1544,7 @@ function holdAdvice(h, price) {
   const stop = T.stop ? h.price * (1 - T.stop / 100) : null;
   const x = searchData && searchData.stocks[h.code];
   if (h.type === "day") return days >= 1 ? ["bad", "當沖應在買進當天收盤前平倉"] : ["", "今天 13:25 前平倉；跌到停損價就先出場"];
-  if (h.type === "overnight") return days >= 1 ? ["bad", "隔日沖：今天開盤賣出（或掛 +2% 限價，沒成交收盤前賣）"] : ["", "收盤前買、明天開盤賣"];
+  if (h.type === "overnight") return days >= 1 ? ["bad", `隔日沖：今天掛 ${fmt(tickCeil(h.price * 1.02))}（+2%）限價賣，沒成交收盤前賣`] : ["", "收盤前買、明天掛 +2% 限價賣"];
   if (stop && price && price <= stop) return ["bad", `已跌破停損價 ${fmt(stop)}，依規則賣出`];
   if (T.days && days >= T.days) return ["bad", `已持有 ${days} 個交易日（滿 ${T.days} 天），依規則收盤賣出`];
   if (h.type === "swing" && x && price && x.ma20 && price < x.ma20) return ["warn", `跌破月線 ${fmt(x.ma20)}，趨勢轉弱，考慮減碼`];
@@ -2497,7 +2497,8 @@ function renderTop3() {
         <span class="name" style="font-size:16px">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"]}</span></div>
       <div style="margin-top:4px"><span class="px num ${p["漲跌%"] > 0 ? "up" : p["漲跌%"] < 0 ? "down" : ""}">${fmt(p["收盤"])}</span>
         <span class="num">${pct(p["漲跌%"])}%</span> <span class="chip sm red">營收年增 ${pct(p["營收年增%"], 0)}%</span></div>
-      ${p["停損參考"] ? `<div class="muted" style="font-size:12px;margin-top:2px">停損參考：約 ${fmt(p["停損參考"])}（以今天收盤估算，實際為進場價 -10%）</div>` : ""}
+      ${p["已持有"] ? `<div style="font-size:12.5px;margin-top:4px"><span class="chip sm amber">已持有</span> ${p["已持有"].slice(5).replace("-", "/")} 已入選、還在持有期，<b>不用再買</b>（照原本的停損與出場日）</div>`
+        : p["停損參考"] ? `<div class="muted" style="font-size:12px;margin-top:2px">停損參考：約 ${fmt(p["停損參考"])}（以今天收盤估算，實際為進場價 -10%）</div>` : ""}
       <ul>${p["理由"].map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
     </div>`).join("");
   const prev = (state.data.previous || {}).top3 || [];
@@ -2587,12 +2588,16 @@ function renderOvernight() {
       <td class="num">${p["限價賣出"] == null ? "–" : fmt(p["限價賣出"])}</td>
       <td class="l">${p["已漲停"] ? '<span class="chip sm dim">已漲停・排隊中</span>' : '<span class="chip sm">可買進</span>'}</td>
     </tr>`).join("");
+  // 實際績效：兩種賣法的已出場平均（2026-10 起）
+  const PO = (d.perf || {}).overnight, PL = (d.perf || {}).overnight_limit;
+  const realExit = PO && PL && PL.summary.avg != null && PO.summary.avg != null
+    ? `<span class="muted" style="font-size:12px">（實際 ${PL.summary.closed} 筆：限價賣 ${pct(PL.summary.avg)}%、勝率 ${PL.summary.win}%；開盤賣 ${pct(PO.summary.avg)}%、勝率 ${PO.summary.win}%）</span>` : "";
   $("overnightView").innerHTML = `
     <div class="banner">
-      <div class="banner-head"><h3>隔日沖</h3><span class="sub">收盤前買進、明天開盤賣出</span></div>
+      <div class="banner-head"><h3>隔日沖</h3><span class="sub">收盤前買進、明天掛 +2% 限價賣</span></div>
       <div class="howto">
         <span><b class="n">1</b>只買 ⭐推薦、還沒漲停的${R.rec_heat ? `<span class="muted" style="font-size:12px">（⭐＝強勢條件＋族群齊漲，11 年回測 ${pct(R.rec_heat.test.avg)}%、勝率 ${R.rec_heat.test.win}%；其他約 ${pct(R.others.avg)}%）</span>` : ""}</span>
-        <span><b class="n">2</b>明天開盤賣（或掛 +2% 限價）</span>
+        <span><b class="n">2</b>明天掛「+2% 限價賣」，沒成交收盤前賣${realExit}</span>
         <span><b class="n">3</b>已漲停的不要排隊追</span>
       </div>
       ${status}
@@ -2602,8 +2607,9 @@ function renderOvernight() {
       <div class="muted" style="font-size:13px">盤中漲到 +7% 以上（開盤時還沒到 +7%）、股價接近或突破 60 日高點、成交量 1,000 張以上，排除處置股，最多 10 檔。</div>
       <dl class="plan" style="margin-top:10px">
         <dt>進場</dt><dd>收盤前買進，不要追高於漲停價；已漲停的股票委買排隊中，可能買不到</dd>
-        <dt>出場</dt><dd>兩種賣法擇一：<b>① 明天開盤直接賣</b>（11 年平均 ${pct(R.exit_open.train.avg)}%～${pct(R.exit_open.test.avg)}%、勝率約 ${R.exit_open.test.win}%，平均賺最多）；
-          <b>② 掛「+2% 限價賣」</b>，盤中碰到就成交、沒碰到收盤前賣（平均 ${pct(R.exit_limit.train.avg)}%～${pct(R.exit_limit.test.avg)}%、勝率約 ${R.exit_limit.train.win}～${R.exit_limit.test.win}%，勝率高但平均較少）。
+        <dt>出場</dt><dd><b>主要：掛「+2% 限價賣」</b>，盤中碰到就成交、沒碰到收盤前賣（11 年平均 ${pct(R.exit_limit.train.avg)}%～${pct(R.exit_limit.test.avg)}%、勝率約 ${R.exit_limit.train.win}～${R.exit_limit.test.win}%）。
+          備案：明天開盤直接賣（11 年平均 ${pct(R.exit_open.train.avg)}%～${pct(R.exit_open.test.avg)}%、勝率約 ${R.exit_open.test.win}%）。
+          回測兩者差不多（開盤賣略高），但 2026/10 起的實際紀錄限價賣明顯較好、勝率較高，所以改以限價賣為主${realExit}。
           表中限價以現價計算，實際請用自己的買進價 × 1.02。不建議什麼都不做抱到收盤（平均虧損）</dd>
         ${R.rec ? `<dt>排序</dt><dd><b>還沒漲停的排前面</b>，其中 <b>⭐ 推薦</b>優先：起漲第 1 根，或量能溫和（量比 &lt; 2）且突破 60 日高。11 年回測推薦的平均 ${pct(R.rec.train.avg)}%／${pct(R.rec.test.avg)}%、勝率 ${R.rec.train.win}%／${R.rec.test.win}%（訓練／驗證），其他 ${pct(R.not_rec.train.avg)}%／${pct(R.not_rec.test.avg)}%。<b>已漲停的排最後</b>：只能用漲停價排隊，排得到的多半是之後被打開的（平均 ${R.queue_opened}%），不建議排隊追</dd>` : ""}
         ${R.first_bar ? `<dt>★ 起漲第1根</dt><dd>前 20 天盤整（波動 ≤ 15%、沒有任何一天漲 ≥ 5%），今天放量 2 倍以上首度大漲，排在最前面。11 年回測隔天開盤賣：平均 ${pct(R.first_bar.train.avg)}%／${pct(R.first_bar.test.avg)}%（訓練／驗證），其他股票 ${pct(R.not_first.train.avg)}%／${pct(R.not_first.test.avg)}%；續抱 5～20 天則沒有優勢</dd>` : ""}
