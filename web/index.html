@@ -2421,11 +2421,15 @@ function renderPerf() {
       <td>${t["日期"]}</td><td class="l">${esc(t["名稱"])} <span class="code num">${t["代號"]}</span></td>
       <td>${t["進場"] == null ? "–" : fmt(t["進場"])}</td><td>${t["出場"] == null ? "–" : fmt(t["出場"])}</td>
       <td class="${t["報酬%"] > 0 ? "up" : t["報酬%"] < 0 ? "down" : ""}">${t["報酬%"] == null ? "–" : pct(t["報酬%"]) + "%"}</td>
-      <td class="l">${t["狀態"]}${t["狀態"] === "持有中" ? `（第 ${t["天數"]} 天）` : ""}${t["大單"] ? `<span class="muted">（大單買賣比 ${t["大單"]}）</span>` : ""}</td></tr>`).join("");
+      <td class="l">${t["狀態"]}${t["狀態"] === "持有中" ? `（第 ${t["天數"]} 天）` : ""}${t["不停損%"] != null
+        ? `<br><span class="muted" style="font-size:12px">若不停損：<b class="${t["不停損%"] > 0 ? "up" : t["不停損%"] < 0 ? "down" : ""}">${pct(t["不停損%"])}%</b>（${t["不停損狀態"] === "已滿 20 天" ? "抱滿 20 天" : `第 ${t["不停損天數"]} 天，追蹤中`}）</span>` : ""}${t["大單"] ? `<span class="muted">（大單買賣比 ${t["大單"]}）</span>` : ""}</td></tr>`).join("");
     // 當沖：依大單買賣比分組（大單篩選的效果，2026-10-16 起記錄）
     const BB = d.by_big, bigLine = BB ? `<div class="muted" style="font-size:12px;margin-top:4px">大單篩選（≥ 20 張買賣比）：${
       [["≤0.5", "大戶賣"], ["0.5~2", "中性"], ["≥2", "大戶買"]].map(([g, n]) => BB[g] ? `${n} ${BB[g].n} 筆，平均 ${pct(BB[g].avg)}%、勝率 ${BB[g].win}%` : `${n} 0 筆`).join("｜")
     }${key.startsWith("daytrade") ? "（放空時「大戶買」就是建議跳過的那組）" : ""}</div>` : "";
+    // 精選 3 檔：停損出場的若沒停損、抱滿 20 天（只供比較，不計入上面的統計）
+    const NS = d.no_stop, noStopLine = NS ? `<div class="muted" style="font-size:12px;margin-top:4px">停損出場的 ${NS.n} 筆：實際平均 ${pct(NS.stop_avg)}%；
+      <b>若不停損、抱滿 20 天 ${pct(NS.avg)}%</b>（${NS.done} 筆已滿 20 天，其餘還在追蹤；${NS.better} 筆不停損比較好）。只供比較，不計入上面的統計</div>` : "";
     return `<div class="etf-card">
       <h3>${title}</h3>
       <div class="muted" style="font-size:12px">${how}</div>
@@ -2434,7 +2438,7 @@ function renderPerf() {
         <div><div class="k">已出場勝率／平均（已扣成本）</div><div class="v num">${s.win == null ? "–" : s.win + "%"}<small>${val(s.avg)}</small></div></div>
         <div><div class="k">持有中平均（未扣成本）</div><div class="v num">${val(s.open_avg)}<small>${s.open} 筆</small></div></div>
       </div>
-      <div class="muted" style="font-size:12px">回測預期：${expect}</div>${bigLine}
+      <div class="muted" style="font-size:12px">回測預期：${expect}</div>${bigLine}${noStopLine}
       ${rows ? `<details class="perf-details"><summary>交易明細（${d.trades.length < s.total ? `最近 ${d.trades.length} 筆，` : ""}共 ${s.total} 筆）</summary>
         <div class="bt-wrap perf-scroll"><table class="bt-table num"><thead><tr><th>選出日</th><th class="l">股票</th><th>進場</th><th>出場／目前</th><th>報酬</th><th class="l">狀態</th></tr></thead><tbody>${rows}</tbody></table></div></details>`
         : `<div class="empty" style="padding:16px">還沒有紀錄。${key === "revenue" ? "下一次換股日開始記錄。" : "每天都會累積。"}</div>`}

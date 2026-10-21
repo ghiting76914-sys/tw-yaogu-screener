@@ -153,6 +153,12 @@ def compute(history, today_final=True, big=True):
                 if held and (held[0] is None or held[0] > i):
                     top3_dup.add(f"{d}|{p['代號']}|{p['名稱']}")
                     continue
+                if t["狀態"] == "已出場" and t["天數"] < 20:
+                    # 停損出場的：繼續追蹤「如果沒停損、抱滿 20 天」會怎樣（只供比較，不計入統計）
+                    alt = hold_trade(d, p["代號"], p["名稱"], 20, stop=0.999, at_close=d >= TOP3_CLOSE_FROM)
+                    if alt:
+                        t["不停損%"], t["不停損天數"] = alt["報酬%"], alt["天數"]
+                        t["不停損狀態"] = "已滿 20 天" if alt["狀態"] == "已出場" else "追蹤中"
                 top3.append(t)
                 top3_hold[p["代號"]] = (i + t["天數"] if t["狀態"] == "已出場" else None, d)
             # 當沖觀察：隔天依開盤方向，開盤進、收盤出（停損 5%）；沒有跳空 3% 的不交易
@@ -238,6 +244,13 @@ def compute(history, today_final=True, big=True):
         trades += [x for k, x in book.items() if k not in seen]
         trades.sort(key=lambda x: (x["日期"], x["代號"]), reverse=True)
         out[key] = {"summary": _summary(trades), "trades": trades[:MAX_TRADES]}
+        if key == "top3":
+            alt = [x for x in trades if x.get("不停損%") is not None]
+            if alt:
+                out[key]["no_stop"] = {"n": len(alt), "done": sum(x["不停損狀態"] == "已滿 20 天" for x in alt),
+                                       "stop_avg": round(sum(x["報酬%"] for x in alt) / len(alt), 2),
+                                       "avg": round(sum(x["不停損%"] for x in alt) / len(alt), 2),
+                                       "better": sum(x["不停損%"] > x["報酬%"] for x in alt)}
         if key in ("daytrade", "daytrade_gap"):
             out[key]["by_big"] = _by_big(trades)
     try:
