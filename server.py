@@ -70,6 +70,11 @@ def run_screen(date_str, min_volume, small_cap, live=True):
         daytrade = strategy.daytrade_watch(history, res["ref"])
         panic = strategy.panic_rebound(history)
         try:
+            dip = strategy.dip_buy(history, res["ref"])
+        except Exception as e:
+            print(f"抄底名單計算失敗：{e}")
+            dip = None
+        try:
             daytrade_prev = strategy.daytrade_previous(history, res["ref"])
         except Exception as e:
             print(f"前一天當沖名單計算失敗：{e}")
@@ -118,7 +123,7 @@ def run_screen(date_str, min_volume, small_cap, live=True):
             "overnight_new": [p for p in overnight_live if p["代號"] not in {x["代號"] for x in overnight}]
             if overnight_fixed and overnight_fixed["kind"] == "pushed" else [], "overnight_backtest": _backtests[bt_key][2],
             "daytrade": {"list": daytrade, "previous": daytrade_prev, "pool": daytrade_pool, "gap_rule": strategy.DAYTRADE_GAP, "rules": strategy.DAYTRADE, "research": strategy.DAYTRADE_RESEARCH},
-            "panic": panic,
+            "panic": panic, "dip_buy": dip,
             "overnight_research": strategy.OVERNIGHT_RESEARCH, "previous": previous,
             "pivot_stats": _backtests[bt_key][3]}
     _last_ref["data"] = data

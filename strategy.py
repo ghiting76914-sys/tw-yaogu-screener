@@ -969,6 +969,61 @@ def daytrade_previous(history, ref=None):
     return {"date": history[-2][0].isoformat(), "trade": history[-1][0].isoformat(), "list": out}
 
 
+# ---------------------------------------------------------------- 抄底名單（research/dip_study.py）
+# 市場廣度 < 20%（均量 500 張以上的股票中站上月線的不到兩成，全市場恐慌）時，均量 ≥ 1000 張、股價 ≥ 10、
+# 距 60 日高點（還原）跌 ≥ 30% 的股票 → 隔天開盤買、分散多檔，持有 20 個交易日、停損 -10%。
+# 個股自己跌深（RSI 超賣、急跌、回測季線）都沒有優勢，只有全市場一起恐慌時才有。
+DIP_BUY = {"breadth": 0.20, "dd": 0.30, "min_lots": 1000, "min_price": 10, "hold": 20, "stop": 10}
+DIP_BUY_RESEARCH = {
+    "period": "2015/01～2026/10", "events": 33, "lost": 7,
+    "train": {"avg": 7.86, "win": 61.3}, "test": {"avg": 10.70, "win": 73.9},
+    "deep40": {"train": 11.14, "test": 13.80}, "base": 1.4,
+    "mid": {"train": 0.59, "test": -1.16},   # 廣度 20～30%：沒有優勢
+    "examples": "2020/3 +17.9%、2021/5 +15.4%、2022/10 +6.3%、2024/8 +7.9%、2025/4 +10.5%；虧的如 2015/7、2018/9、2026/7/20 約 -8%",
+}
+
+
+def dip_buy(history, ref=None):
+    """今天的市場廣度與抄底名單；回傳 {active, breadth, count, list}。廣度與跌幅都用還原價（排除除權息）。"""
+    series = build_series(history)
+    t = len(history) - 1
+    disposal = (ref or {}).get("disposal") or set()
+    above = tot = 0
+    cands = []
+    for code, s in series.items():
+        if len(code) != 4 or code[0] == "0" or not s[t]:
+            continue
+        rows = s[max(0, t - 64):t + 1]
+        if any(x is None or None in (x["close"], x["change"], x["high"]) or x["close"] - x["change"] <= 0 for x in rows[-60:]) \
+                or len(rows) < 60:
+            continue
+        idx, adj = 1.0, []
+        for x in rows[-60:]:
+            g = x["change"] / (x["close"] - x["change"])
+            if not -0.11 < g < 0.11:
+                break
+            idx *= 1 + g
+            adj.append((idx, idx * x["high"] / x["close"]))
+        if len(adj) < 60:
+            continue
+        vol20 = sum(x["volume"] or 0 for x in rows[-20:]) / 20
+        if vol20 >= 500_000:
+            tot += 1
+            above += adj[-1][0] > sum(a for a, _ in adj[-20:]) / 20
+        r = s[t]
+        dd = adj[-1][0] / max(hh for _, hh in adj) - 1
+        if vol20 >= DIP_BUY["min_lots"] * 1000 and r["close"] >= DIP_BUY["min_price"] and dd <= -DIP_BUY["dd"]:
+            prev = r["close"] - r["change"]
+            cands.append({"代號": code, "名稱": r["name"], "市場": r["market"], "收盤": r["close"],
+                          "漲跌%": round(r["change"] / prev * 100, 2), "距高點%": round(dd * 100, 1),
+                          "均量": round(vol20 / 1000), "處置": code in disposal})
+    breadth = above / tot if tot else None
+    active = breadth is not None and breadth < DIP_BUY["breadth"]
+    cands.sort(key=lambda p: p["距高點%"])
+    return {"active": active, "breadth": round(breadth * 100, 1) if breadth is not None else None,
+            "count": len(cands), "list": cands if active else [], "rules": DIP_BUY, "research": DIP_BUY_RESEARCH}
+
+
 def daytrade_result(o, h, l, c, prev_close):
     """依開盤決定方向，回傳 (方向, 報酬%（已扣成本）)；開盤沒有跳空 3% 回傳 (None, None)。"""
     gap = (o / prev_close - 1) * 100

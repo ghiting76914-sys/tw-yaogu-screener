@@ -66,6 +66,7 @@ def save(data):
         "top3": _slim((rev.get("top3") or {}).get("picks") or []),
         "daytrade": _slim((data.get("daytrade") or {}).get("list") or []),
         "panic": _slim((data.get("panic") or {}).get("list") or []),
+        "dip_buy": _slim((data.get("dip_buy") or {}).get("list") or []),
         # 妖股雷達 ⭐（網站預設分數 ≥ 6）：2026-10-16 起記錄
         "radar_star": _slim([r for r in data.get("results") or [] if r.get("推薦") and r["分數"] >= 6]),
         # 營收動能只在換股日存（其他天名單不變）

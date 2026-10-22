@@ -493,6 +493,7 @@ html { scroll-behavior: smooth; }
 
 <main>
   <section class="panic-card" id="panicPanel" hidden></section>
+  <section id="dipBuyPanel" hidden></section>
   <section class="search-card" id="searchCard" hidden></section>
   <section class="top3" id="top3Panel" hidden></section>
 
@@ -727,6 +728,7 @@ async function runScreen(silent = false) {
     renderDay();
     renderTop3();
     renderPanic();
+    renderDipBuy();
     renderPerf();
     renderHold();
     alertSetup();
@@ -1022,6 +1024,43 @@ function renderPanic() {
       <tbody>${p.list.map((x) => `<tr data-code="${x["代號"]}"><td class="l"><span class="name">${esc(x["名稱"])}</span><span class="code num">${x["代號"]}</span><span class="mkt">${x["市場"]}</span></td>
         <td class="num">${fmt(x["收盤"])}</td><td class="num">${pct(x["漲跌%"])}%</td><td class="num">${pct(x["近5日%"], 1)}%</td></tr>`).join("")}</tbody>
     </table></div>`;
+}
+
+// ---------------------------------------------------------------- 抄底名單（research/dip_study.py）：平常顯示市場廣度，< 20% 時列出名單
+function renderDipBuy() {
+  const p = state.data && state.data.dip_buy, el = $("dipBuyPanel");
+  if (!p || p.breadth == null) { el.hidden = true; return; }
+  const R = p.research, r = p.rules, lim = r.breadth * 100;
+  el.hidden = false;
+  if (!p.active) {
+    el.className = "";
+    el.innerHTML = `<details class="more" style="margin:0 0 12px;padding:8px 14px;background:var(--panel);border:1px solid var(--line);border-radius:12px">
+      <summary>🎣 抄底名單：目前不符合（市場廣度 <b>${p.breadth}%</b>，跌破 ${lim}% 才觸發，還差 ${(p.breadth - lim).toFixed(1)} 個百分點）</summary>
+      <div style="font-size:13px;line-height:1.7;margin-top:6px">
+        <b>規則</b>：均量 500 張以上的股票中，站上月線的比例 &lt; ${lim}%（全市場恐慌）時，買進均量 ${fmt(r.min_lots, 0)} 張以上、距 60 日高點跌 ≥ ${r.dd * 100}% 的股票：
+        隔天開盤買、<b>平均分散 10 檔以上</b>，持有 ${r.hold} 個交易日、停損 -${r.stop}%。觸發當天收盤後會推播 LINE／Telegram。<br>
+        <b>11 年回測</b>（${R.period}）出現 ${R.events} 次：平均 ${pct(R.train.avg)}%／${pct(R.test.avg)}%、勝率 ${R.train.win}%／${R.test.win}%（訓練／驗證），
+        同期隨便買約 ${pct(R.base)}%。跌幅 40% 以上的平均 ${pct(R.deep40.train)}%／${pct(R.deep40.test)}%。${esc(R.examples)}。<br>
+        <span class="muted">廣度 20～30% 時沒有優勢（${pct(R.mid.train)}%／${pct(R.mid.test)}%）；個股自己跌深（RSI 超賣、急跌、回測季線）11 年回測也都沒有優勢。只挑跌最深的幾檔，勝率會掉到約 50%。</span>
+      </div></details>`;
+    return;
+  }
+  el.className = "panic-card";
+  const lst = p.list;
+  el.innerHTML = `
+    <div class="banner-head"><h3>🎣 抄底名單</h3><span class="sub">${state.data.trade_date} 收盤市場廣度只剩 ${p.breadth}%（&lt; ${lim}%），全市場恐慌</span></div>
+    <div class="howto">
+      <span><b class="n">1</b>明天開盤買進：優先從<b>跌 40% 以上</b>的股票中<b>平均分散挑 10 檔以上</b>（不要只挑跌最深的幾檔）</span>
+      <span><b class="n">2</b>跌破進場價 -${r.stop}% 停損</span>
+      <span><b class="n">3</b>持有 ${r.hold} 個交易日收盤賣出</span>
+    </div>
+    <p class="filter-note">11 年回測出現 ${R.events} 次：平均 ${pct(R.train.avg)}%／${pct(R.test.avg)}%、勝率 ${R.train.win}%／${R.test.win}%；其中 ${R.lost} 次虧約 -8%（恐慌還沒結束）。只用一部分資金。處置股撮合慢、不好進出，建議跳過。</p>
+    <div class="table-wrap" style="max-height:360px;margin-top:10px"><table>
+      <thead><tr><th class="l">股票</th><th>收盤</th><th>今天</th><th>距 60 日高點</th><th>均量（張）</th></tr></thead>
+      <tbody>${lst.map((x) => `<tr data-code="${x["代號"]}"${x["處置"] ? ' style="opacity:.5"' : ""}><td class="l"><span class="name">${esc(x["名稱"])}</span><span class="code num">${x["代號"]}</span><span class="mkt">${x["市場"]}</span>${x["處置"] ? '<span class="chip sm amber">處置</span>' : ""}</td>
+        <td class="num">${fmt(x["收盤"])}</td><td class="num">${pct(x["漲跌%"])}%</td><td class="num down">${pct(x["距高點%"], 1)}%</td><td class="num">${fmt(x["均量"], 0)}</td></tr>`).join("")}</tbody>
+    </table></div>
+    <div class="muted" style="font-size:12px;margin-top:6px">共 ${p.count} 檔，依跌幅排序。</div>`;
 }
 
 // ---------------------------------------------------------------- 個股搜尋與健檢（資料：search.json，search.py 產生）
@@ -2457,6 +2496,8 @@ function renderPerf() {
       O.rec_heat ? `11 年回測每筆平均 ${pct(O.rec_heat.train.avg)}%／${pct(O.rec_heat.test.avg)}%、勝率約 ${O.rec_heat.test.win}%（⭐ 2026-10-14 起加入族群齊漲條件）` : "") : ""}
     ${block("overnight_limit", "⚡ 隔日沖（掛 +2% 限價賣）", "同一份名單，隔天掛買進價 +2% 的限價單，盤中碰到就賣、沒碰到收盤賣。",
       `每筆平均 ${pct(O.exit_limit ? O.exit_limit.train.avg : null)}%～${pct(O.exit_limit ? O.exit_limit.test.avg : null)}%，勝率約 ${O.exit_limit ? O.exit_limit.train.win : "–"}～${O.exit_limit ? O.exit_limit.test.win : "–"}%（11 年）`)}
+    ${P.dip_buy && P.dip_buy.trades.length ? block("dip_buy", "🎣 抄底名單", "市場廣度 < 20% 時，距 60 日高點跌 ≥ 30% 的股票：隔天開盤買、持有 20 個交易日，停損 -10%。",
+      "11 年 33 次，平均 +7.9%～+10.7%、勝率 61%～74%") : ""}
     ${P.panic && P.panic.trades.length ? block("panic", "🚨 股災反彈", "訊號隔天開盤買、持有 5 個交易日收盤賣（同一天 ≥ 10 檔大跌後漲停時才觸發）。",
       "11 年 8 個事件日，平均 +10.5%～+11.2%、勝率約 93%～94%") : ""}
     ${P.daytrade ? block("daytrade", "⚡ 當沖觀察", "前一天鎖漲停的股票：開高 ≥3% 開盤放空（開盤漲停不空）、開低 ≤-3% 開盤做多，停損 5%，收盤出場；跳空不到 3% 不交易。已扣當沖成本 0.435%。",

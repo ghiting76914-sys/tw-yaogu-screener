@@ -540,6 +540,27 @@ def build_panic_text(data):
             f"完整名單：{SITE_URL}")
 
 
+def dipbuy_due(data):
+    """今天收盤市場廣度 < 20%，出現抄底名單（strategy.DIP_BUY）。"""
+    p = data.get("dip_buy") or {}
+    return bool(p.get("active") and p.get("list"))
+
+
+def build_dipbuy_text(data):
+    p, R, r = data["dip_buy"], data["dip_buy"]["research"], data["dip_buy"]["rules"]
+    lst = [x for x in p["list"] if not x["處置"]]
+    names = "、".join(f"{x['名稱']}{x['代號']}({x['距高點%']:.0f}%)" for x in lst[:20])
+    more = f" 等 {len(lst)} 檔" if len(lst) > 20 else ""
+    return (f"🎣 抄底名單｜{data['trade_date']}\n"
+            f"市場廣度只剩 {p['breadth']}%（均量 500 張以上的股票站上月線的比例 < {r['breadth'] * 100:.0f}%），全市場恐慌。\n\n"
+            f"【做法】明天開盤買進：優先從跌 40% 以上的股票中平均分散挑 10 檔以上（不要只挑跌最深的幾檔），持有 {r['hold']} 個交易日收盤賣，"
+            f"跌破進場價 -{r['stop']}% 停損。只買幾檔效果明顯變差。\n"
+            f"【名單】（括號為距 60 日高點跌幅）{names}{more}\n\n"
+            f"📊 11 年回測 {R['events']} 次：平均 +{R['train']['avg']:.1f}%～+{R['test']['avg']:.1f}%、勝率 {R['train']['win']:.0f}%～{R['test']['win']:.0f}%；"
+            f"其中 {R['lost']} 次虧約 -8%（恐慌還沒結束）。請只用一部分資金。\n"
+            f"完整名單：{SITE_URL}")
+
+
 def revenue_due(data):
     """今天是營收動能換股日，且有名單。"""
     r = data.get("revenue")
@@ -649,9 +670,11 @@ def main():
     send_rev = rev_due and (args.force or args.revenue_test or not os.path.exists(rev_marker))
     dip_marker = os.path.join(CACHE_DIR, f"line_dip_sent_{data['trade_date'].replace('-', '')}")
     panic_marker = os.path.join(CACHE_DIR, f"line_panic_sent_{data['trade_date'].replace('-', '')}")
+    dipbuy_marker = os.path.join(CACHE_DIR, f"line_dipbuy_sent_{data['trade_date'].replace('-', '')}")
+    send_dipbuy = not preview and not args.revenue_test and dipbuy_due(data) and (args.force or not os.path.exists(dipbuy_marker))
     send_panic = not preview and not args.revenue_test and panic_due(data) and (args.force or not os.path.exists(panic_marker))
     send_dip = not preview and not args.revenue_test and dip_due(data) and (args.force or not os.path.exists(dip_marker))
-    if not send_picks and not send_rev and not send_dip and not send_panic:
+    if not send_picks and not send_rev and not send_dip and not send_panic and not send_dipbuy:
         print(f"{data['trade_date']} 已發送過，略過")
         return
 
@@ -659,7 +682,8 @@ def main():
     main_msg = build_overnight_flex(data) if preview else flex
     messages = ([main_msg] if send_picks else []) + ([build_revenue_flex(data)] if send_rev else []) \
         + ([build_dip_flex(data)] if send_dip else []) \
-        + ([{"type": "text", "text": build_panic_text(data)[:5000]}] if send_panic else [])
+        + ([{"type": "text", "text": build_panic_text(data)[:5000]}] if send_panic else []) \
+        + ([{"type": "text", "text": build_dipbuy_text(data)[:5000]}] if send_dipbuy else [])
     err = push(token, user_id, messages)
     if err and err[0] == 400:
         # 卡片格式被拒絕時改傳純文字，確保一定收得到
@@ -670,7 +694,8 @@ def main():
             ] if top.get("picks") and not preview else []
         main_text = [build_overnight_text(data)] if preview else (top_text + texts)[:4]
         fallback = (main_text if send_picks else []) + ([build_revenue_text(data)] if send_rev else []) \
-            + ([build_dip_text(data)] if send_dip else []) + ([build_panic_text(data)] if send_panic else [])
+            + ([build_dip_text(data)] if send_dip else []) + ([build_panic_text(data)] if send_panic else []) \
+            + ([build_dipbuy_text(data)] if send_dipbuy else [])
         fallback = fallback[:4] + fallback[-1:] if len(fallback) > 5 else fallback  # 一次最多 5 則，保留最後的通知
         err = push(token, user_id, [{"type": "text", "text": t[:5000]} for t in fallback])
     if err:
@@ -690,6 +715,9 @@ def main():
     if send_panic:
         open(panic_marker, "w").close()
         print(f"已傳送股災反彈訊號（{data['panic']['count']} 檔）到 LINE")
+    if send_dipbuy:
+        open(dipbuy_marker, "w").close()
+        print(f"已傳送抄底名單（{len(data['dip_buy']['list'])} 檔）到 LINE")
     if send_dip:
         open(dip_marker, "w").close()
         print(f"已傳送 0050 回檔 {data['etf']['dip']['level']}% 通知到 LINE")

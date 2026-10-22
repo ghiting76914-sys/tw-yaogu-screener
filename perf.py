@@ -114,7 +114,7 @@ def compute(history, today_final=True, big=True):
                 "報酬%": round(ret, 2), "狀態": "已出場" if closed else "持有中", "天數": len(bars)}
 
     top3, overnight, overnight_limit, rev, daytrade, overnight_rec, panic = [], [], [], [], [], [], []
-    radar_star, day_gap = [], []
+    radar_star, day_gap, dip_buy = [], [], []
     # 精選 3 檔：同一檔還在持有中又再次入選時不重複買（2026-10-21 起的規則，套用到全部紀錄）
     top3_hold, top3_dup = {}, set()   # 代號 → (出場日索引或 None＝持有中, 第一次選出日)
     # 當沖：開盤跳空 ≥ 5% 放空（strategy.DAYTRADE_GAP）。名單完全由行情決定（前一天均量 ≥ 1000 張、股價 ≥ 10），直接用行情計算
@@ -186,6 +186,10 @@ def compute(history, today_final=True, big=True):
                 t = hold_trade(d, p["代號"], p["名稱"], strategy.RADAR_STAR["hold"], stop=strategy.RADAR_STAR["stop"] / 100)
                 if t:
                     radar_star.append(t)
+            for p in s.get("dip_buy") or []:  # 抄底名單：隔天開盤買、持有 20 天、停損 -10%
+                t = hold_trade(d, p["代號"], p["名稱"], strategy.DIP_BUY["hold"], stop=strategy.DIP_BUY["stop"] / 100)
+                if t:
+                    dip_buy.append(t)
             for p in s.get("panic") or []:  # 股災反彈：隔天開盤買、持有 5 天
                 t = hold_trade(d, p["代號"], p["名稱"], strategy.PANIC["hold"])
                 if t:
@@ -231,7 +235,7 @@ def compute(history, today_final=True, big=True):
     out = {}
     for key, trades in (("top3", top3), ("overnight", overnight), ("overnight_limit", overnight_limit), ("overnight_rec", overnight_rec),
                         ("revenue", rev), ("daytrade", daytrade), ("panic", panic),
-                        ("radar_star", radar_star), ("daytrade_gap", day_gap)):
+                        ("radar_star", radar_star), ("daytrade_gap", day_gap), ("dip_buy", dip_buy)):
         book = ledger.setdefault(key, {})
         if key == "top3":
             for k in top3_dup:
