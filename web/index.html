@@ -422,6 +422,18 @@ details.more[open] > summary { margin-bottom: 8px; }
 .alert-toasts { position: fixed; right: 16px; bottom: 16px; z-index: 50; display: grid; gap: 8px; max-width: min(360px, calc(100vw - 32px)); }
 .alert-toast { background: var(--text); color: var(--panel); border-radius: 10px; padding: 10px 14px; font-size: 13px; box-shadow: var(--shadow); cursor: pointer; }
 .perf-details { margin-top: 10px; }
+.sc-list { display: flex; flex-direction: column; gap: 8px; }
+.sc-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.sc-name { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sc-name .muted { font-size: 12px; }
+.sc-nums { flex: 3 1 420px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.sc-nums > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.sc-nums .k { font-size: 11px; color: var(--muted); }
+.sc-nums b { font-size: 15px; }
+.sc-nums .muted { font-size: 11px; }
+.perf-judge { flex: 1 1 100%; font-size: 13px; }
+.perf-judge.pj-bad, .perf-judge.pj-mid { font-weight: 600; }
+@media (max-width: 640px) { .sc-nums { grid-template-columns: repeat(2, minmax(0, 1fr)); flex-basis: 100%; } }
 .perf-details summary { cursor: pointer; font-size: 13px; color: var(--accent); font-weight: 600; }
 .perf-scroll { max-height: 420px; overflow-y: auto; margin-top: 6px; }
 .perf-scroll thead th { position: sticky; top: 0; background: var(--panel); }
@@ -1035,7 +1047,7 @@ function renderDipBuy() {
   if (!p.active) {
     el.className = "";
     el.innerHTML = `<details class="more" style="margin:0 0 12px;padding:8px 14px;background:var(--panel);border:1px solid var(--line);border-radius:12px">
-      <summary>🎣 抄底名單：目前不符合（市場廣度 <b>${p.breadth}%</b>，跌破 ${lim}% 才觸發，還差 ${(p.breadth - lim).toFixed(1)} 個百分點）</summary>
+      <summary style="white-space:normal">🎣 抄底名單：目前不符合（市場廣度 <b>${p.breadth}%</b>，跌破 ${lim}% 才觸發，還差 ${(p.breadth - lim).toFixed(1)} 個百分點）</summary>
       <div style="font-size:13px;line-height:1.7;margin-top:6px">
         <b>規則</b>：均量 500 張以上的股票中，站上月線的比例 &lt; ${lim}%（全市場恐慌）時，買進均量 ${fmt(r.min_lots, 0)} 張以上、距 60 日高點跌 ≥ ${r.dd * 100}% 的股票：
         隔天開盤買、<b>平均分散 10 檔以上</b>，持有 ${r.hold} 個交易日、停損 -${r.stop}%。觸發當天收盤後會推播 LINE／Telegram。<br>
@@ -2484,10 +2496,8 @@ function renderPerf() {
     </div>`;
   };
   $("perfView").innerHTML = `
-    <div class="banner">
-      <h3>實際績效：照網站建議操作的真實結果</h3>
-      <div class="muted" style="font-size:13px">從 ${P.since || "–"} 開始，用每天存下的名單與之後的實際股價計算；已出場的扣手續費與證交稅，持有中的只算目前漲跌。筆數少時結果波動很大，至少累積幾十筆再跟回測比較才有意義。</div>
-    </div>
+    ${perfScorecard(P, T3, O)}
+    <details class="more perf-all"><summary>各策略的每筆交易明細</summary>
     ${block("top3", "🎯 明日精選 3 檔", "選出當天以收盤價買進（盤後定價，10/12 以前選出的照當時建議為隔天開盤買），持有 20 個交易日後收盤賣出；盤中跌破進場價 -10% 就停損。",
       `每筆平均 ${pct(T3.train ? T3.train.avg : null)}%～${pct(T3.test ? T3.test.avg : null)}%，勝率約 ${T3.test ? T3.test.win : "–"}～${T3.train ? T3.train.win : "–"}%（11 年、停損 -10%）`)}
     ${block("overnight", "⚡ 隔日沖", "12:30 名單當時的價格買進，隔天開盤賣出（已漲停排隊中的實際上可能買不到）。",
@@ -2508,7 +2518,66 @@ function renderPerf() {
       `每筆平均 +1.6%／+2.5%，勝率約 34%（11 年，大多停損出場、靠少數大漲拉高平均）`) : ""}
     ${block("revenue", "📊 營收動能", "換股隔天開盤平均買進 20 檔，持有 20 個交易日。",
       `${R.months || "–"} 個月中 ${R.beat || "–"} 個月贏過大盤，平均每月多 ${pct(R.excess)}%（11 年）`)}
+    </details>
     ${allocation()}`;
+}
+
+// 實際績效成績單：每個策略一列，已出場＋持有中一起算（＝「如果今天全部賣掉」），跟回測比較並給一句話判斷
+function perfScorecard(P, T3, O) {
+  const S = state.data.radar_star, G = (state.data.daytrade || {}).gap_rule;
+  const rng = (a, b) => (a == null || b == null ? null : [Math.min(a, b), Math.max(a, b)]);
+  const defs = [
+    ["overnight_limit", "⚡ 隔日沖（+2% 限價賣）", "短線・1 天", O.exit_limit && rng(O.exit_limit.train.avg, O.exit_limit.test.avg), "目前建議的賣法"],
+    ["overnight", "⚡ 隔日沖（開盤賣）", "短線・1 天", O.exit_open && rng(O.exit_open.train.avg, O.exit_open.test.avg), "備案賣法"],
+    ["overnight_rec", "⭐ 隔日沖只買推薦", "短線・1 天", O.rec_heat && rng(O.rec_heat.train.avg, O.rec_heat.test.avg), ""],
+    ["daytrade_gap", "⚡ 當沖：開盤跳空 ≥5% 放空", "當沖", G && rng(G.research.train.avg, G.research.test.avg), ""],
+    ["daytrade", "⚡ 當沖：昨天鎖漲停", "當沖", [0.56, 0.58], ""],
+    ["top3", "🎯 明日精選 3 檔", "波段・20 天", T3.train && T3.test && rng(T3.train.avg, T3.test.avg), ""],
+    ["radar_star", "⭐ 妖股雷達", "波段・20 天", S && rng(S.train.avg, S.test.avg), ""],
+    ["revenue", "📊 營收動能", "波段・20 天", null, "回測是跟大盤比（每月平均多 2%）"],
+    ["dip_buy", "🎣 抄底名單", "事件・20 天", [7.86, 10.7], ""],
+    ["panic", "🚨 股災反彈", "事件・5 天", [10.5, 11.2], ""],
+  ];
+  const rows = [];
+  for (const [key, name, kind, exp, note] of defs) {
+    const d = P[key];
+    if (!d) continue;
+    const xs = d.trades.filter((t) => t["報酬%"] != null && (t["狀態"] === "已出場" || t["狀態"] === "持有中"));
+    if (!xs.length && (key === "dip_buy" || key === "panic")) continue;
+    const n = xs.length, open = xs.filter((t) => t["狀態"] === "持有中").length;
+    const avg = n ? xs.reduce((a, t) => a + t["報酬%"], 0) / n : null;
+    const win = n ? xs.filter((t) => t["報酬%"] > 0).length / n * 100 : null;
+    const money = n ? xs.reduce((a, t) => a + t["報酬%"], 0) / 100 * 10 : null;  // 每筆 10 萬，單位：萬
+    let v;
+    if (!n) v = ["", "⏳", "還沒有交易"];
+    else if (n < 20) v = ["", "⏳", `才 ${n} 筆，還看不出來`];
+    else if (exp && avg >= exp[0] - 0.05) v = ["ok", "✅", "符合或優於回測"];
+    else if (avg > 0) v = ["mid", "🟡", "有賺，但低於回測"];
+    else v = ["bad", "🔴", exp ? "目前虧損，低於回測" : "目前虧損"];
+    if (n && open / n > 0.5) v[2] += `（${open} 筆還在持有，結果還會變）`;
+    rows.push({ key, name, kind, exp, note, n, open, avg, win, money, v });
+  }
+  const judged = rows.filter((r) => r.n >= 20);
+  const best = [...judged].sort((a, b) => b.avg - a.avg)[0], worst = [...judged].sort((a, b) => a.avg - b.avg)[0];
+  const cls = (x) => (x > 0 ? "up" : x < 0 ? "down" : "");
+  const tr = rows.map((r) => `<div class="sc-row">
+      <div class="sc-name"><b>${r.name}</b><span class="muted">${r.kind}${r.note ? "・" + r.note : ""}</span></div>
+      <div class="sc-nums">
+        <div><span class="k">平均報酬</span><b class="num ${cls(r.avg)}">${r.avg == null ? "–" : pct(r.avg) + "%"}</b>${r.exp ? `<span class="muted num">回測 ${pct(r.exp[0])}～${pct(r.exp[1])}%</span>` : ""}</div>
+        <div><span class="k">勝率</span><b class="num">${r.win == null ? "–" : Math.round(r.win) + "%"}</b></div>
+        <div><span class="k">筆數</span><b class="num">${r.n}</b>${r.open ? `<span class="muted">持有中 ${r.open}</span>` : ""}</div>
+        <div><span class="k">每筆 10 萬累計</span><b class="num ${cls(r.money)}">${r.money == null ? "–" : (r.money > 0 ? "+" : "") + r.money.toFixed(1) + " 萬"}</b></div>
+      </div>
+      <div class="perf-judge pj-${r.v[0] || "na"}">${r.v[1]} ${r.v[2]}</div>
+    </div>`).join("");
+  return `<div class="banner">
+      <div class="banner-head"><h3>實際績效成績單</h3><span class="sub">從 ${P.since || "–"} 開始，照網站建議操作的真實結果</span></div>
+      ${best && worst && best !== worst ? `<p style="margin:6px 0 10px;font-size:14px;line-height:1.7">目前最好：<b>${best.name}</b>（${best.n} 筆，平均 <b class="${cls(best.avg)}">${pct(best.avg)}%</b>）；
+        最差：<b>${worst.name}</b>（${worst.n} 筆，平均 <b class="${cls(worst.avg)}">${pct(worst.avg)}%</b>）。</p>` : ""}
+      <div class="sc-list">${tr}</div>
+      <div class="muted" style="font-size:12px;margin-top:8px;line-height:1.6">怎麼看：<b>平均報酬</b>＝每筆交易的平均（已賣出的扣手續費與稅；還在持有的用今天收盤價算，等於「如果今天全部賣掉」）。
+        <b>每筆投 10 萬累計</b>＝每次訊號都投 10 萬，到今天總共賺或賠多少。筆數不到 20 筆時運氣成分很大，先不要下結論。每筆交易的明細在下方。</div>
+    </div>`;
 }
 
 function allocation() {
