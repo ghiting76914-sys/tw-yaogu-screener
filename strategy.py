@@ -1111,7 +1111,7 @@ def overnight_picks(history, ref):
             p["風險"].append(f"{p['族群']}族群沒有一起漲（單打獨鬥的隔日沖，回測平均約 -0.6%）")
         if p["已漲停"]:
             p["風險"].insert(0, "已漲停才看到只能排隊，排得到的多半是之後被打開的（回測平均 -3.8%），不建議排隊追")
-    out.sort(key=lambda p: (not p["已漲停"], p["推薦"], p["族群齊漲"], p["漲跌%"], p["量比"] or 0), reverse=True)
+    out.sort(key=lambda p: (not p["已漲停"], p["推薦"], p["推薦原"], p["族群齊漲"], p["漲跌%"], p["量比"] or 0), reverse=True)
     return out[:OVERNIGHT["top"]]
 
 

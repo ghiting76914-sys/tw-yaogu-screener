@@ -2693,7 +2693,7 @@ function renderOvernight() {
   const rowHtml = (list, mark) => list.map((p, i) => `
     <tr data-code="${p["代號"]}" class="${p["代號"] === state.selected ? "sel" : ""}">
       <td class="num">${i + 1}</td>
-      <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"] || ""}</span>${p["推薦"] ? ' <span class="chip sm red" title="起漲第 1 根，或量比 < 2 且突破 60 日高">⭐ 推薦</span>' : ""}${mark && pushed && pushedCodes.has(p["代號"]) ? ' <span class="chip sm dim">已推播</span>' : ""}${p["起漲第1根"] ? ' <span class="chip sm dim" title="前 20 天盤整後首度放量大漲">起漲第1根</span>' : ""}${p["族群"] ? ` <span class="chip sm ${p["族群齊漲"] ? "" : "dim"}" title="同族群今天另有 ${p["族群同漲"] || 0} 檔流動股漲 5% 以上">${esc(p["族群"])}${p["族群齊漲"] ? ` 齊漲 ${p["族群同漲"]}` : ""}</span>` : ""}</td>
+      <td class="l"><span class="name">${esc(p["名稱"])}</span><span class="code num">${p["代號"]}</span><span class="mkt">${p["市場"] || ""}</span>${p["推薦"] ? ' <span class="chip sm red" title="強勢條件＋族群齊漲">⭐ 推薦</span>' : p["推薦原"] ? ' <span class="chip sm amber" title="起漲第 1 根，或量比 < 2 且突破 60 日高；族群沒有一起漲，所以不是 ⭐">強勢</span>' : ""}${mark && pushed && pushedCodes.has(p["代號"]) ? ' <span class="chip sm dim">已推播</span>' : ""}${p["起漲第1根"] ? ' <span class="chip sm dim" title="前 20 天盤整後首度放量大漲">起漲第1根</span>' : ""}${p["族群"] ? ` <span class="chip sm ${p["族群齊漲"] ? "" : "dim"}" title="同族群今天另有 ${p["族群同漲"] || 0} 檔流動股漲 5% 以上">${esc(p["族群"])}${p["族群齊漲"] ? ` 齊漲 ${p["族群同漲"]}` : ""}</span>` : ""}</td>
       <td class="num">${fmt(p["現價"])}</td>
       <td class="num">${pct(p["漲跌%"])}%</td>
       <td class="num col-opt">${pct(p["開盤%"], 1)}%</td>
@@ -2725,7 +2725,7 @@ function renderOvernight() {
           備案：明天開盤直接賣（11 年平均 ${pct(R.exit_open.train.avg)}%～${pct(R.exit_open.test.avg)}%、勝率約 ${R.exit_open.test.win}%）。
           回測兩者差不多（開盤賣略高），但 2026/10 起的實際紀錄限價賣明顯較好、勝率較高，所以改以限價賣為主${realExit}。
           表中限價以現價計算，實際請用自己的買進價 × 1.02。不建議什麼都不做抱到收盤（平均虧損）</dd>
-        ${R.rec ? `<dt>排序</dt><dd><b>還沒漲停的排前面</b>，其中 <b>⭐ 推薦</b>優先：起漲第 1 根，或量能溫和（量比 &lt; 2）且突破 60 日高。11 年回測推薦的平均 ${pct(R.rec.train.avg)}%／${pct(R.rec.test.avg)}%、勝率 ${R.rec.train.win}%／${R.rec.test.win}%（訓練／驗證），其他 ${pct(R.not_rec.train.avg)}%／${pct(R.not_rec.test.avg)}%。<b>已漲停的排最後</b>：只能用漲停價排隊，排得到的多半是之後被打開的（平均 ${R.queue_opened}%），不建議排隊追</dd>` : ""}
+        ${R.rec ? `<dt>排序</dt><dd><b>還沒漲停的排前面</b>，其中依序是 <b>⭐ 推薦</b>（強勢條件＋族群齊漲）→ <b>強勢</b>（只有強勢條件：起漲第 1 根，或量能溫和（量比 &lt; 2）且突破 60 日高）→ 族群齊漲 → 其他（依漲幅）。11 年回測強勢條件的平均 ${pct(R.rec.train.avg)}%／${pct(R.rec.test.avg)}%、勝率 ${R.rec.train.win}%／${R.rec.test.win}%（訓練／驗證），其他 ${pct(R.not_rec.train.avg)}%／${pct(R.not_rec.test.avg)}%。<b>已漲停的排最後</b>：只能用漲停價排隊，排得到的多半是之後被打開的（平均 ${R.queue_opened}%），不建議排隊追</dd>` : ""}
         ${R.first_bar ? `<dt>★ 起漲第1根</dt><dd>前 20 天盤整（波動 ≤ 15%、沒有任何一天漲 ≥ 5%），今天放量 2 倍以上首度大漲，排在最前面。11 年回測隔天開盤賣：平均 ${pct(R.first_bar.train.avg)}%／${pct(R.first_bar.test.avg)}%（訓練／驗證），其他股票 ${pct(R.not_first.train.avg)}%／${pct(R.not_first.test.avg)}%；續抱 5～20 天則沒有優勢</dd>` : ""}
         <dt>風險</dt><dd>收盤若沒鎖住漲停，隔天開盤平均是虧損（${esc(R.opened)}）</dd>
       </dl>
