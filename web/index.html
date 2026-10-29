@@ -992,8 +992,8 @@ async function select(code) {
     </div>
   </div>`;
 
+  let bars, lines = [];
   try {
-    let bars;
     if (STATIC) {
       chartsPromise ||= fetch(`data/charts.json?t=${Date.now()}`).then((r) => r.json());
       bars = (await chartsPromise)[code];
@@ -1006,14 +1006,39 @@ async function select(code) {
     if (state.selected !== code) return;
     renderPivots(bars);
     const pre = (state.data.pre || []).find((x) => x["代號"] === code);
-    drawChart(bars, pre ? [
+    lines = pre ? [
       { price: pre["箱頂"], label: "箱頂", color: "var(--up)" },
       { price: pre["箱底"], label: "箱底", color: "var(--down)" },
-    ] : []);
+    ] : [];
+    drawChart(bars, lines);
   } catch (e) {
     $("chart").innerHTML = `<div class="empty">K 線讀取失敗：${esc(e.message)}</div>`;
   }
   if (!STATIC && state.data.market_open) pollQuote(code);
+  else if (STATIC && bars && inMarketHours()) pollLiveChart(code, bars, lines);
+}
+
+// 靜態網站盤中：每 20 秒透過轉接站查所選個股的即時報價，更新右上角價格，並把今天的 K 棒換成即時的開高低收量
+async function pollLiveChart(code, bars, lines) {
+  if (state.selected !== code) return;
+  try {
+    const q = (await alertFetch([code]))[code];
+    if (state.selected !== code) return;
+    if (q && q.prev) {
+      const c = (q.price / q.prev - 1) * 100, cls = c > 0 ? "up" : c < 0 ? "down" : "";
+      $("dPrice").innerHTML = `<div class="p num ${cls}">${fmt(q.price)}</div>
+        <div class="num">${pct(c)}%${q.limit === "up" ? '<span class="up">（漲停）</span>' : q.limit === "down" ? '<span class="down">（跌停）</span>' : ""}</div>
+        <div style="margin-top:4px"><span class="live pulse">即時 ${esc((q.time || "").slice(0, 5))}</span></div>`;
+      if (q.open) {
+        const today = twDay(twNow());
+        const bar = { date: today, open: q.open, high: Math.max(q.high || q.price, q.price), low: Math.min(q.low || q.price, q.price),
+          close: q.price, volume: Math.round(q.vol || 0) };
+        const live = bars.length && bars[bars.length - 1].date === today ? [...bars.slice(0, -1), bar] : [...bars, bar];
+        drawChart(live, lines);
+      }
+    }
+  } catch (e) { /* 網路短暫失敗就下次再試 */ }
+  if (inMarketHours()) quoteTimer = setTimeout(() => pollLiveChart(code, bars, lines), 20000);
 }
 
 // ---------------------------------------------------------------- 股災反彈訊號（只在觸發的交易日顯示）
